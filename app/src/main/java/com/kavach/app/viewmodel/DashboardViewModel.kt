@@ -24,6 +24,27 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     private val preferences = KavachPreferences(application)
     private val sensorFusion = SensorFusion(application)
     val alarmController = AlarmController(application)
+    val profileRepository = UserProfileRepository(application)
+
+    val userProfile: StateFlow<UserProfile> = profileRepository.userProfileFlow
+        .stateIn(
+            viewModelScope,
+            SharingStarted.Eagerly,
+            profileRepository.getInitialProfile()
+        )
+
+    private val _hourlyUsage = MutableStateFlow(profileRepository.getTodayHourlyUsage())
+    val hourlyUsage: StateFlow<Map<Int, Map<DetectionMode, Int>>> = _hourlyUsage.asStateFlow()
+
+    fun saveUserProfile(profile: UserProfile) {
+        viewModelScope.launch {
+            profileRepository.saveProfile(profile)
+        }
+    }
+
+    fun refreshUsageStats() {
+        _hourlyUsage.value = profileRepository.getTodayHourlyUsage()
+    }
 
     // === UI State ===
     private val _shieldState = MutableStateFlow(ShieldState.DISARMED)
@@ -216,9 +237,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         _remainingSeconds.value = minutes * 60L
 
         isTransitSessionPausedByUser = false
-        if (s.detectionMode == DetectionMode.AUTO_POCKET) {
-            _isAutoPocketSessionActive.value = true
-        }
+        _isAutoPocketSessionActive.value = false
         // If user manually initiated ARM SHIELD, clear the night cancel flag so user manual action takes precedence.
         // But if night auto-arm initiated it, do NOT wipe userDisarmedNightWindow!
         if (!isNightAutoArm) {
@@ -673,11 +692,9 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
      * Update full settings.
      */
     fun updateSettings(settings: KavachSettings) {
-        if (settings.detectionMode != DetectionMode.AUTO_POCKET) {
-            val app = getApplication<Application>()
-            KavachForegroundService.closeAutoPocketSession(app)
-            _isAutoPocketSessionActive.value = false
-        }
+        val app = getApplication<Application>()
+        KavachForegroundService.closeAutoPocketSession(app)
+        _isAutoPocketSessionActive.value = false
         if (settings.nightSchedule.enabled) {
             userDisarmedNightWindow = false
             val app = getApplication<Application>()
@@ -810,26 +827,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
 
     
     private fun registerScreenStateReceiver() {
-        val app = getApplication<Application>()
-        screenReceiver = object : android.content.BroadcastReceiver() {
-            override fun onReceive(context: Context?, intent: Intent?) {
-                if (intent?.action == Intent.ACTION_SCREEN_OFF) {
-                    val currentMode = settings.value.detectionMode
-                    val currentState = _shieldState.value
-                    if (currentMode == DetectionMode.AUTO_POCKET && 
-                        currentState == ShieldState.DISARMED && 
-                        !isTransitSessionPausedByUser) {
-                        // Automatically re-arm for metro commute when screen is locked/turned off
-                        armShieldWithDuration(
-                            minutes = if (settings.value.selectedTimerPreset == TimerPreset.CUSTOM) settings.value.customTimerMinutes else settings.value.selectedTimerPreset.minutes,
-                            isNightAutoArm = false
-                        )
-                    }
-                }
-            }
-        }
-        val filter = android.content.IntentFilter(Intent.ACTION_SCREEN_OFF)
-        app.registerReceiver(screenReceiver, filter)
+        // Auto-loop commuter feature removed - Pocket Guard is manual one-time single-arm
     }
 
     /**

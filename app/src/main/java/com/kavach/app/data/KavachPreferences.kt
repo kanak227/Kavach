@@ -47,6 +47,7 @@ class KavachPreferences(private val context: Context) {
         val SMS_FALLBACK_ENABLED = booleanPreferencesKey("sms_fallback_enabled")
         val EMERGENCY_PHONE_NUMBER = stringPreferencesKey("emergency_phone_number")
         val SMS_INTERVAL_SECONDS = intPreferencesKey("sms_interval_seconds")
+        val TRAVEL_IDLE_MINUTES = intPreferencesKey("travel_idle_minutes")
 
         private const val KEY_CACHED_DARK_MODE = "cached_is_dark_mode"
         private const val KEY_TERMS_ACCEPTED = "cached_terms_accepted"
@@ -88,6 +89,7 @@ class KavachPreferences(private val context: Context) {
         val nightEndH = sharedPrefs.getInt("night_end_hour", 7)
         val nightEndM = sharedPrefs.getInt("night_end_minute", 0)
         val timeoutMins = sharedPrefs.getInt("alarm_timeout_minutes", 0)
+        val travelIdleMins = sharedPrefs.getInt("travel_idle_minutes", 3)
         val tgEnabled = sharedPrefs.getBoolean("telegram_alert_enabled", false)
         val tgBotToken = sharedPrefs.getString("telegram_bot_token", "") ?: ""
         val tgChatId = sharedPrefs.getString("telegram_chat_id", "") ?: ""
@@ -132,6 +134,7 @@ class KavachPreferences(private val context: Context) {
         val isDark = prefs[IS_DARK_MODE] ?: sharedPrefs.getBoolean(KEY_CACHED_DARK_MODE, true)
         val vol = prefs[ALARM_VOLUME_PERCENT] ?: sharedPrefs.getInt("alarm_volume_percent", 100).coerceIn(0, 100)
         val timeoutMins = prefs[ALARM_TIMEOUT_MINUTES] ?: sharedPrefs.getInt("alarm_timeout_minutes", 0)
+        val travelIdleMins = prefs[TRAVEL_IDLE_MINUTES] ?: sharedPrefs.getInt("travel_idle_minutes", 3)
         val comboStr = prefs[POWER_BUTTON_COMBO] ?: sharedPrefs.getString("power_button_combo", PowerButtonCombo.POWER_VOL_UP.name) ?: PowerButtonCombo.POWER_VOL_UP.name
         val combo = try { PowerButtonCombo.valueOf(comboStr) } catch (_: Exception) { PowerButtonCombo.POWER_VOL_UP }
         val tgEnabled = prefs[TELEGRAM_ALERT_ENABLED] ?: sharedPrefs.getBoolean("telegram_alert_enabled", false)
@@ -191,6 +194,7 @@ class KavachPreferences(private val context: Context) {
             alarmVolumePercent = prefs[ALARM_VOLUME_PERCENT] ?: 100,
             alarmTimeoutMinutes = timeoutMins,
             isDarkMode = isDark,
+            travelIdleMinutes = travelIdleMins,
             telegramAlert = TelegramAlertConfig(
                 isEnabled = tgEnabled,
                 botToken = tgBotToken,
@@ -222,6 +226,7 @@ class KavachPreferences(private val context: Context) {
             .putInt("arming_countdown_seconds", settings.armingCountdownSeconds)
             .putInt("alarm_volume_percent", settings.alarmVolumePercent)
             .putInt("alarm_timeout_minutes", settings.alarmTimeoutMinutes)
+            .putInt("travel_idle_minutes", settings.travelIdleMinutes)
             .putBoolean("telegram_alert_enabled", settings.telegramAlert.isEnabled)
             .putString("telegram_bot_token", settings.telegramAlert.botToken)
             .putString("telegram_chat_id", settings.telegramAlert.chatId)
@@ -248,6 +253,7 @@ class KavachPreferences(private val context: Context) {
             prefs[SENSITIVITY_LEVEL] = settings.sensitivityLevel
             prefs[UNLOCKED_SIREN_PACKS] = settings.unlockedSirenPacks
             prefs[DETECTION_MODE] = settings.detectionMode.name
+            prefs[TRAVEL_IDLE_MINUTES] = settings.travelIdleMinutes
             prefs[DECOY_COUNTDOWN_SECONDS] = settings.decoyCountdownSeconds
             prefs[ARMING_COUNTDOWN_SECONDS] = settings.armingCountdownSeconds
             prefs[ALARM_VOLUME_PERCENT] = settings.alarmVolumePercent

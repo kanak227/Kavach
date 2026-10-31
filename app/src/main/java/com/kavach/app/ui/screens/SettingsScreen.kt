@@ -46,6 +46,16 @@ fun SettingsScreen(
 ) {
     val scrollState = rememberScrollState()
     val colors = LocalKavachColors.current
+    val activeAccent = if (colors.isDark) KavachGold else Color(0xFF00758F)
+
+    // Expandable accordion menu tabs
+    var expandedTimers by remember { mutableStateOf(false) }
+    var expandedAppearance by remember { mutableStateOf(false) }
+    var expandedAlarm by remember { mutableStateOf(false) }
+    var expandedTravelMode by remember { mutableStateOf(false) }
+    var expandedTelegram by remember { mutableStateOf(false) }
+    var expandedTamper by remember { mutableStateOf(false) }
+    var expandedDocumentation by remember { mutableStateOf(false) }
 
     Column(
         modifier = modifier
@@ -76,138 +86,323 @@ fun SettingsScreen(
             )
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(18.dp))
 
-        // === Timers ===
-        SectionLabel("TIMERS", colors)
-        Spacer(modifier = Modifier.height(8.dp))
-        TimerConfigCard(
-            armingCountdown = settings.armingCountdownSeconds,
-            decoyCountdown = settings.decoyCountdownSeconds,
-            onArmingCountdownChanged = {
-                onSettingsChanged(settings.copy(armingCountdownSeconds = it))
-            },
-            onDecoyCountdownChanged = {
-                onSettingsChanged(settings.copy(decoyCountdownSeconds = it))
-            },
-            colors = colors
+        Text(
+            text = "PREFERENCES & CONFIGURATION",
+            fontFamily = OrbitronFamily,
+            fontWeight = FontWeight.Bold,
+            fontSize = 11.5.sp,
+            color = colors.textSecondary,
+            letterSpacing = 1.sp
         )
+        Spacer(modifier = Modifier.height(12.dp))
 
-        Spacer(modifier = Modifier.height(24.dp))
+        // 1. TIMERS MENU TAB
+        SettingsMenuHeader(
+            icon = Icons.Outlined.Timer,
+            title = "Timers & Countdowns",
+            subtitle = "Arming countdown & auth decoy timers",
+            isExpanded = expandedTimers,
+            onToggle = { expandedTimers = !expandedTimers },
+            colors = colors,
+            activeColor = activeAccent
+        )
+        if (expandedTimers) {
+            Spacer(modifier = Modifier.height(8.dp))
+            TimerConfigCard(
+                armingCountdown = settings.armingCountdownSeconds,
+                decoyCountdown = settings.decoyCountdownSeconds,
+                onArmingCountdownChanged = {
+                    onSettingsChanged(settings.copy(armingCountdownSeconds = it))
+                },
+                onDecoyCountdownChanged = {
+                    onSettingsChanged(settings.copy(decoyCountdownSeconds = it))
+                },
+                colors = colors
+            )
+        }
 
-        
+        Spacer(modifier = Modifier.height(12.dp))
 
-        // === Appearance ===
-        SectionLabel("APPEARANCE", colors)
-        Spacer(modifier = Modifier.height(8.dp))
-        SettingsToggleItem(
+        // 2. APPEARANCE MENU TAB
+        SettingsMenuHeader(
             icon = if (settings.isDarkMode) Icons.Outlined.DarkMode else Icons.Outlined.LightMode,
-            title = if (settings.isDarkMode) "Dark Mode" else "Light Mode",
-            subtitle = "Switch between dark and light theme",
-            isEnabled = settings.isDarkMode,
-            onToggle = { onSettingsChanged(settings.copy(isDarkMode = it)) },
-            colors = colors
+            title = "Appearance",
+            subtitle = if (settings.isDarkMode) "Dark Theme active" else "Light Theme active",
+            isExpanded = expandedAppearance,
+            onToggle = { expandedAppearance = !expandedAppearance },
+            colors = colors,
+            activeColor = activeAccent
         )
+        if (expandedAppearance) {
+            Spacer(modifier = Modifier.height(8.dp))
+            SettingsToggleItem(
+                icon = if (settings.isDarkMode) Icons.Outlined.DarkMode else Icons.Outlined.LightMode,
+                title = if (settings.isDarkMode) "Dark Mode" else "Light Mode",
+                subtitle = "Switch between dark and light theme",
+                isEnabled = settings.isDarkMode,
+                onToggle = { onSettingsChanged(settings.copy(isDarkMode = it)) },
+                colors = colors
+            )
+        }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
-        // === Alarm Settings ===
-        SectionLabel("ALARM", colors)
-        Spacer(modifier = Modifier.height(8.dp))
-
-        AlarmVolumeCard(
-            volumePercent = settings.alarmVolumePercent,
-            onVolumeChanged = { onSettingsChanged(settings.copy(alarmVolumePercent = it)) },
-            colors = colors
-        )
-
-        Spacer(modifier = Modifier.height(10.dp))
-
-        AlarmDurationCard(
-            timeoutMinutes = settings.alarmTimeoutMinutes,
-            onTimeoutChanged = { onSettingsChanged(settings.copy(alarmTimeoutMinutes = it)) },
-            colors = colors
-        )
-
-        Spacer(modifier = Modifier.height(8.dp))
-
-        SettingsItem(
+        // 3. ALARM MENU TAB
+        SettingsMenuHeader(
             icon = Icons.Outlined.VolumeUp,
-            title = "Test Alarm",
-            subtitle = "Play 3-second siren preview at ${settings.alarmVolumePercent}% volume",
-            onClick = onTestAlarm,
-            colors = colors
+            title = "Alarm & Siren Output",
+            subtitle = "Volume ${settings.alarmVolumePercent}%, sound pack, timeout & test",
+            isExpanded = expandedAlarm,
+            onToggle = { expandedAlarm = !expandedAlarm },
+            colors = colors,
+            activeColor = activeAccent
         )
+        if (expandedAlarm) {
+            Spacer(modifier = Modifier.height(8.dp))
+            AlarmVolumeCard(
+                volumePercent = settings.alarmVolumePercent,
+                onVolumeChanged = { onSettingsChanged(settings.copy(alarmVolumePercent = it)) },
+                colors = colors
+            )
 
-        Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
-        SettingsItem(
-            icon = Icons.Outlined.MusicNote,
-            title = "Siren Packs",
-            subtitle = "Choose alert sound (Custom sirens or Phone Default)",
-            onClick = onNavigateToSirenPacks,
-            colors = colors
+            AlarmDurationCard(
+                timeoutMinutes = settings.alarmTimeoutMinutes,
+                onTimeoutChanged = { onSettingsChanged(settings.copy(alarmTimeoutMinutes = it)) },
+                colors = colors
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            SettingsItem(
+                icon = Icons.Outlined.VolumeUp,
+                title = "Test Alarm",
+                subtitle = "Play 3-second siren preview at ${settings.alarmVolumePercent}% volume",
+                onClick = onTestAlarm,
+                colors = colors
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            SettingsItem(
+                icon = Icons.Outlined.MusicNote,
+                title = "Siren Packs",
+                subtitle = "Choose alert sound (Custom sirens or Phone Default)",
+                onClick = onNavigateToSirenPacks,
+                colors = colors
+            )
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // 4. TRAVEL MODE CONFIG MENU TAB
+        SettingsMenuHeader(
+            icon = Icons.Outlined.DirectionsCar,
+            title = "Travel Mode Inactivity",
+            subtitle = "Auto-engages Desk Guard after ${settings.travelIdleMinutes} min stationary",
+            isExpanded = expandedTravelMode,
+            onToggle = { expandedTravelMode = !expandedTravelMode },
+            colors = colors,
+            activeColor = activeAccent
         )
+        if (expandedTravelMode) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(colors.card)
+                    .border(1.dp, colors.cardBorder, RoundedCornerShape(14.dp))
+                    .padding(16.dp)
+            ) {
+                Column {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Stationary Idle Threshold",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = colors.textPrimary,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = "${settings.travelIdleMinutes} min",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = activeAccent,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Slider(
+                        value = settings.travelIdleMinutes.toFloat(),
+                        onValueChange = { onSettingsChanged(settings.copy(travelIdleMinutes = it.roundToInt())) },
+                        valueRange = 1f..15f,
+                        steps = 13,
+                        colors = SliderDefaults.colors(
+                            thumbColor = activeAccent,
+                            activeTrackColor = activeAccent
+                        )
+                    )
+                    Text(
+                        text = "When in Travel Mode, if your phone is not in a pocket/bag and left still for this duration, Desk Guard automatically engages to guard against table theft.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = colors.textMuted,
+                        fontSize = 11.5.sp,
+                        lineHeight = 16.sp
+                    )
+                }
+            }
+        }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
-        // === Emergency Alert (Telegram) ===
-        SectionLabel("EMERGENCY ALERT (TELEGRAM)", colors)
-        Spacer(modifier = Modifier.height(8.dp))
-
-        TelegramAlertCard(
-            config = settings.telegramAlert,
-            onConfigChanged = { updatedConfig ->
-                onSettingsChanged(settings.copy(telegramAlert = updatedConfig))
-            },
-            colors = colors
+        // 5. TELEGRAM EMERGENCY ALERT MENU TAB
+        SettingsMenuHeader(
+            icon = Icons.Outlined.Send,
+            title = "Telegram Emergency SOS",
+            subtitle = if (settings.telegramAlert.isEnabled) "Telegram & Offline SMS armed" else "Configure bot & offline emergency SMS",
+            isExpanded = expandedTelegram,
+            onToggle = { expandedTelegram = !expandedTelegram },
+            colors = colors,
+            activeColor = activeAccent
         )
+        if (expandedTelegram) {
+            Spacer(modifier = Modifier.height(8.dp))
+            TelegramAlertCard(
+                config = settings.telegramAlert,
+                onConfigChanged = { updatedConfig ->
+                    onSettingsChanged(settings.copy(telegramAlert = updatedConfig))
+                },
+                colors = colors
+            )
+        }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
-        // === Tamper Resistance & Security ===
-        SectionLabel("TAMPER RESISTANCE & SECURITY", colors)
-        Spacer(modifier = Modifier.height(8.dp))
-
-        TamperResistanceCard(
-            colors = colors
+        // 6. TAMPER RESISTANCE MENU TAB
+        SettingsMenuHeader(
+            icon = Icons.Outlined.Security,
+            title = "Tamper Resistance & Security",
+            subtitle = "Lock-screen lockdown & hardware power defense",
+            isExpanded = expandedTamper,
+            onToggle = { expandedTamper = !expandedTamper },
+            colors = colors,
+            activeColor = activeAccent
         )
+        if (expandedTamper) {
+            Spacer(modifier = Modifier.height(8.dp))
+            TamperResistanceCard(colors = colors)
+            Spacer(modifier = Modifier.height(10.dp))
+            HardwareShutdownDefenseCard(colors = colors)
+        }
 
-        Spacer(modifier = Modifier.height(14.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
-        HardwareShutdownDefenseCard(
-            colors = colors
-        )
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        // === Help & Documentation ===
-        SectionLabel("HELP & DOCUMENTATION", colors)
-        Spacer(modifier = Modifier.height(8.dp))
-
-        SettingsItem(
+        // 7. HELP & DOCUMENTATION MENU TAB
+        SettingsMenuHeader(
             icon = Icons.Outlined.MenuBook,
-            title = "User Manual & Guide",
-            subtitle = "Complete guide in English, Hindi, Spanish & 10 languages",
-            onClick = onNavigateToUserManual,
-            colors = colors
+            title = "Help & Documentation",
+            subtitle = "User manual, 4-mode guide & multi-language docs",
+            isExpanded = expandedDocumentation,
+            onToggle = { expandedDocumentation = !expandedDocumentation },
+            colors = colors,
+            activeColor = activeAccent
         )
+        if (expandedDocumentation) {
+            Spacer(modifier = Modifier.height(8.dp))
+            SettingsItem(
+                icon = Icons.Outlined.MenuBook,
+                title = "User Manual & Guide",
+                subtitle = "Complete guide for Travel, Sleep, Desk and Pocket modes",
+                onClick = onNavigateToUserManual,
+                colors = colors
+            )
+        }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
-        // === About ===
-        SectionLabel("ABOUT", colors)
-        Spacer(modifier = Modifier.height(8.dp))
-
+        // About Item
         SettingsItem(
             icon = Icons.Outlined.Info,
-            title = "Kavach v1.0.0",
-            subtitle = "Smart Anti-Theft & Stealth Motion Guard",
+            title = "Kavach v1.1.0 (Alternate)",
+            subtitle = "4-Mode Adaptive Stealth Anti-Theft Shield",
             onClick = { },
             colors = colors
         )
 
         Spacer(modifier = Modifier.height(80.dp))
+    }
+}
+
+@Composable
+private fun SettingsMenuHeader(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    isExpanded: Boolean,
+    onToggle: () -> Unit,
+    colors: KavachColors,
+    activeColor: Color
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .border(
+                1.dp,
+                if (isExpanded) activeColor.copy(alpha = 0.8f) else colors.cardBorder,
+                RoundedCornerShape(14.dp)
+            )
+            .clickable(onClick = onToggle),
+        color = if (isExpanded) activeColor.copy(alpha = 0.08f) else colors.card
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(38.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(if (isExpanded) activeColor.copy(alpha = 0.2f) else colors.surfaceElevated),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = if (isExpanded) activeColor else colors.textPrimary,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+            Spacer(modifier = Modifier.width(14.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = if (isExpanded) activeColor else colors.textPrimary
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.textMuted,
+                    fontSize = 11.5.sp
+                )
+            }
+            Icon(
+                imageVector = if (isExpanded) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore,
+                contentDescription = null,
+                tint = if (isExpanded) activeColor else colors.textMuted
+            )
+        }
     }
 }
 

@@ -121,6 +121,8 @@ class MainActivity : FragmentActivity() {
             val isNightGuardDismissed by viewModel.isNightGuardDismissedForTonight.collectAsStateWithLifecycle()
             val isNightWindowActive by viewModel.isNightWindowActive.collectAsStateWithLifecycle()
             val isAutoPocketActive by viewModel.isAutoPocketSessionActive.collectAsStateWithLifecycle()
+            val userProfile by viewModel.userProfile.collectAsStateWithLifecycle()
+            val hourlyUsage by viewModel.hourlyUsage.collectAsStateWithLifecycle()
 
             var showExitDialog by remember { mutableStateOf(false) }
             var isOpeningSplashFinished by rememberSaveable { mutableStateOf(false) }
@@ -505,10 +507,25 @@ class MainActivity : FragmentActivity() {
                                             },
                                             onNavigateToSettings = {
                                                 navController.navigate("settings")
+                                            },
+                                            onNavigateToProfile = {
+                                                viewModel.refreshUsageStats()
+                                                navController.navigate("profile")
                                             }
                                         )
 
                                     }
+                                }
+
+                                composable("profile") {
+                                    com.kavach.app.ui.screens.ProfileScreen(
+                                        profile = userProfile,
+                                        hourlyUsage = hourlyUsage,
+                                        onSaveProfile = { updated ->
+                                            viewModel.saveUserProfile(updated)
+                                        },
+                                        onNavigateBack = { navController.popBackStack() }
+                                    )
                                 }
 
                                 composable("settings") {

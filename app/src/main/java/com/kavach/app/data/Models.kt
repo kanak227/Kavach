@@ -26,26 +26,37 @@ enum class DetectionMode(
     val typeName: String,
     val description: String
 ) {
-    /** Stationary protection for tables, desks, bedside nightstand, charging */
-    MOTION(
-        title = "Desk Guard",
-        typeName = "Stationary",
-        description = "Guards phones on tables or bedside. Uses vertical lift sensors to 100% ignore horizontal sliding."
+    /** Travel mode: dynamic sensor shifts between pocket, desk (when idle), and dormant (when in active use) */
+    TRAVEL(
+        title = "Travel Mode",
+        typeName = "Dynamic Travel",
+        description = "Adaptive transit defense. Auto-activates Pocket Guard when stowed, Desk Guard if left stationary/idle, and stays silent when you actively use the device."
     ),
-    /** Standard one-time pocket protection: arms once, disarms upon unlock */
+    /** Sleep mode: Y-axis vertical elevation detection requiring high, deliberate theft lift while filtering bed tosses and dreams */
+    SLEEP(
+        title = "Sleep Mode",
+        typeName = "Bed & Nightstand",
+        description = "High-tolerance nocturnal protection. Absorbs normal bed tosses, dreams, and mattress shifts; alarms only when lifted sky-high from baseline."
+    ),
+    /** Desk mode: instant Y-axis vertical lift detection off surface with zero horizontal slide triggers */
+    DESK(
+        title = "Desk Mode",
+        typeName = "Table & Office",
+        description = "Instant vertical lift monitoring for tables and desks. Triggers instantly upon pickup while 100% ignoring surface sliding."
+    ),
+    /** Pocket mode: single-arm standard pocket/bag protection with anti-walking filter and extraction fusion */
     POCKET(
         title = "Pocket Guard",
-        typeName = "Single-Arm (Standard)",
-        description = "Arms once. Place in pocket/bag. Disarms permanently upon biometric unlock."
-    ),
-    /** Continuous transit commute mode: stays dormant while phone is in use, auto re-arms on screen-off */
-    AUTO_POCKET(
-        title = "Pocket Guard",
-        typeName = "Auto-Loop Commuter",
-        description = "Arms once in pocket. Dormant while phone is on. Auto-re-arms whenever screen is locked."
+        typeName = "Pocket & Bag",
+        description = "Arms once. Slide into pocket or bag. Filters walking rhythms and triggers upon extraction. Disarms manually with biometric auth."
     );
 
-    val label: String get() = if (this == MOTION) title else "$title ($typeName)"
+    val label: String get() = title
+
+    companion object {
+        // Compatibility alias for legacy MOTION references
+        val MOTION: DetectionMode get() = DESK
+    }
 }
 
 /**
@@ -118,12 +129,13 @@ data class KavachSettings(
     val flashlightEnabled: Boolean = true,
     val sensitivityLevel: Int = 5,  // 1-10 scale
     val unlockedSirenPacks: Set<String> = setOf("system_alarm", "default", "police", "air_horn", "military", "nuclear", "tornado"),
-    val detectionMode: DetectionMode = DetectionMode.MOTION,
+    val detectionMode: DetectionMode = DetectionMode.DESK,
     val decoyCountdownSeconds: Int = 5,  // User-configurable decoy timer (3-30s)
     val armingCountdownSeconds: Int = 5, // User-configurable arming countdown (3-15s)
     val alarmVolumePercent: Int = 100,   // Alarm sound volume level (5% - 100%)
     val alarmTimeoutMinutes: Int = 0,    // 0 = Endless / Until Disarmed (default), 1 to 60 minutes
     val isDarkMode: Boolean = true,      // Dark mode by default
+    val travelIdleMinutes: Int = 3,      // Configurable minutes of inactivity before Desk Guard activates in Travel Mode
     val telegramAlert: TelegramAlertConfig = TelegramAlertConfig()
 )
 

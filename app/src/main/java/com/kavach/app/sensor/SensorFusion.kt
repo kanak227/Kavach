@@ -44,9 +44,23 @@ class SensorFusion(context: Context) : SensorEventListener {
     val motionDetected: StateFlow<Boolean> = _motionDetected.asStateFlow()
 
     // Active detection mode
-    private var _detectionMode = DetectionMode.MOTION
+    private var _detectionMode = DetectionMode.DESK
 
-    // === Desk / Table Mode Variables (MOTION) ===
+    // Dynamic Travel Mode Sub-State
+    enum class TravelSubState {
+        ACTIVE_USE,    // User actively moving or handling phone, screen on/activity -> silent, no trigger
+        IN_POCKET,     // Phone inside pocket/bag -> Pocket extraction monitoring active
+        DESK_IDLE      // Phone left stationary/ideal for configurable minutes -> Desk Mode monitoring active
+    }
+
+    private val _travelCurrentSubState = MutableStateFlow(TravelSubState.ACTIVE_USE)
+    val travelCurrentSubState: StateFlow<TravelSubState> = _travelCurrentSubState.asStateFlow()
+
+    private var travelIdleThresholdMs = 3 * 60 * 1000L // default 3 minutes
+    private var lastMovementTimestamp = System.currentTimeMillis()
+    private var travelIsDeviceInPocket = false
+
+    // === Desk / Table Mode Variables ===
     private var baselineX = 0f
     private var baselineY = 0f
     private var baselineZ = 9.81f
@@ -94,6 +108,14 @@ class SensorFusion(context: Context) : SensorEventListener {
 
     fun setDetectionMode(mode: DetectionMode) {
         _detectionMode = mode
+    }
+
+    fun setTravelIdleMinutes(minutes: Int) {
+        travelIdleThresholdMs = minutes.coerceIn(1, 30) * 60 * 1000L
+    }
+
+    fun notifyUserActivity() {
+        lastMovementTimestamp = System.currentTimeMillis()
     }
 
     /**
@@ -181,76 +203,157 @@ class SensorFusion(context: Context) : SensorEventListener {
         currentAccelY = y
         currentAccelZ = z
 
+        val totalG = sqrt(x * x + y * y + z * z)
+        val accelDeviation = abs(totalG - 9.81f)
+
+        // Reset movement timestamp whenever noticeable motion occurs
+        if (accelDeviation > 0.4f) {
+            lastMovementTimestamp = System.currentTimeMillis()
+        }
+
         when (_detectionMode) {
-            DetectionMode.MOTION -> {
-                // === DESK / TABLE GUARD ===
-                if (!baselineSet) {
-                    // Average first N samples while phone rests on surface
-                    baselineX = ((baselineX * calibrationSamples) + x) / (calibrationSamples + 1)
-                    baselineY = ((baselineY * calibrationSamples) + y) / (calibrationSamples + 1)
-                    baselineZ = ((baselineZ * calibrationSamples) + z) / (calibrationSamples + 1)
-                    calibrationSamples++
-                    if (calibrationSamples >= calibrationCount) {
-                        val mag = sqrt(baselineX * baselineX + baselineY * baselineY + baselineZ * baselineZ)
-                        baselineG = if (mag > 0.1f) mag else 9.81f
-                        normalX = baselineX / baselineG
-                        normalY = baselineY / baselineG
-                        normalZ = baselineZ / baselineG
-                        consecutiveVerticalSamples = 0
-                        baselineSet = true
-                    }
-                    return
-                }
-
-                // Pure vertical projection along the resting surface normal vector:
-                // (x * normalX + y * normalY + z * normalZ) calculates the instantaneous force perpendicular to the table.
-                // Subtracting baselineG isolates the true vertical lift acceleration and orientation change off the table.
-                // CRITICAL PHYSICS: Any horizontal sliding parallel to the desk produces a dot product of EXACTLY 0.000
-                // with the normal vector! Horizontal sliding produces ZERO verticalDelta!
-                val normalForce = (x * normalX + y * normalY + z * normalZ)
-                val verticalDelta = abs(normalForce - baselineG)
-
-                // UI Display Metric: Displays live vertical lift magnitude
-                _sensorReading.value = _sensorReading.value.copy(motionMagnitude = verticalDelta)
-
-                // Trigger Condition:
-                // ONLY true vertical lift off the resting baseline triggers the siren!
-                // Requires 2 consecutive samples (40ms) to filter out single-sample micro-clicks/texture taps.
-                // Horizontal sliding has verticalDelta == 0.0 and will NEVER trigger!
-                if (verticalDelta > verticalThreshold) {
-                    consecutiveVerticalSamples++
-                    if (consecutiveVerticalSamples >= 2) {
-                        _motionDetected.value = true
-                    }
-                } else {
-                    consecutiveVerticalSamples = 0
-                }
+            DetectionMode.DESK -> {
+                handleDeskDetection(x, y, z, false)
             }
 
-            DetectionMode.POCKET, DetectionMode.AUTO_POCKET -> {
-                // === PICKPOCKET GUARD ===
-                if (!lightBaselineSet) {
-                    // Still calibrating pocket baseline
-                    return
-                }
+            DetectionMode.SLEEP -> {
+                handleSleepDetection(x, y, z)
+            }
 
-                val totalG = sqrt(x * x + y * y + z * z)
-                val verticalRatio = if (totalG > 0.1f) abs(y) / totalG else 0f
+            DetectionMode.POCKET -> {
+                handlePocketDetection(x, y, z, totalG, accelDeviation)
+            }
 
-                // In pocket, verticalRatio is usually > 0.70 (phone upright or head-down)
-                // When extracted and held horizontally, verticalRatio drops below tiltThreshold (< 0.58)
-                val isTiltedFlat = verticalRatio < tiltThreshold
+            DetectionMode.TRAVEL -> {
+                handleTravelDetection(x, y, z, totalG, accelDeviation)
+            }
+        }
+    }
 
-                // Detect extraction impulse (sudden non-walking acceleration)
-                val totalAccelDeviation = abs(totalG - 9.81f)
-                val isExtractionJerk = totalAccelDeviation > extractionMotionThreshold
+    /**
+     * Desk Mode: Pure vertical projection off baseline resting angle.
+     * Instant detection. Any horizontal surface sliding produces dot product of 0.0 with normal.
+     */
+    private fun handleDeskDetection(x: Float, y: Float, z: Float, isSecondary: Boolean) {
+        if (!baselineSet) {
+            baselineX = ((baselineX * calibrationSamples) + x) / (calibrationSamples + 1)
+            baselineY = ((baselineY * calibrationSamples) + y) / (calibrationSamples + 1)
+            baselineZ = ((baselineZ * calibrationSamples) + z) / (calibrationSamples + 1)
+            calibrationSamples++
+            if (calibrationSamples >= calibrationCount) {
+                val mag = sqrt(baselineX * baselineX + baselineY * baselineY + baselineZ * baselineZ)
+                baselineG = if (mag > 0.1f) mag else 9.81f
+                normalX = baselineX / baselineG
+                normalY = baselineY / baselineG
+                normalZ = baselineZ / baselineG
+                consecutiveVerticalSamples = 0
+                baselineSet = true
+            }
+            return
+        }
 
-                if (isTiltedFlat && isExtractionJerk) {
-                    lastExtractionTiltTime = System.currentTimeMillis()
-                    evaluatePickpocketFusion()
-                }
+        val normalForce = (x * normalX + y * normalY + z * normalZ)
+        val verticalDelta = abs(normalForce - baselineG)
 
-                _sensorReading.value = _sensorReading.value.copy(motionMagnitude = totalAccelDeviation)
+        if (!isSecondary) {
+            _sensorReading.value = _sensorReading.value.copy(motionMagnitude = verticalDelta)
+        }
+
+        // Instant lift off surface
+        if (verticalDelta > verticalThreshold) {
+            consecutiveVerticalSamples++
+            if (consecutiveVerticalSamples >= 2) {
+                _motionDetected.value = true
+            }
+        } else {
+            consecutiveVerticalSamples = 0
+        }
+    }
+
+    /**
+     * Sleep Mode: High-tolerance nocturnal protection.
+     * Filters dream-twitching, rolling in bed, and mattress bounce.
+     * Triggers strictly when lifted high and held deliberately up (sky-high pickup).
+     */
+    private fun handleSleepDetection(x: Float, y: Float, z: Float) {
+        if (!baselineSet) {
+            baselineX = ((baselineX * calibrationSamples) + x) / (calibrationSamples + 1)
+            baselineY = ((baselineY * calibrationSamples) + y) / (calibrationSamples + 1)
+            baselineZ = ((baselineZ * calibrationSamples) + z) / (calibrationSamples + 1)
+            calibrationSamples++
+            if (calibrationSamples >= calibrationCount) {
+                val mag = sqrt(baselineX * baselineX + baselineY * baselineY + baselineZ * baselineZ)
+                baselineG = if (mag > 0.1f) mag else 9.81f
+                normalX = baselineX / baselineG
+                normalY = baselineY / baselineG
+                normalZ = baselineZ / baselineG
+                consecutiveVerticalSamples = 0
+                baselineSet = true
+            }
+            return
+        }
+
+        val normalForce = (x * normalX + y * normalY + z * normalZ)
+        val verticalDelta = abs(normalForce - baselineG)
+
+        _sensorReading.value = _sensorReading.value.copy(motionMagnitude = verticalDelta)
+
+        // Sleep mode threshold is significantly higher (deliberate high lift: 4.8m/s² scaled)
+        // and requires sustained consecutive samples (5 samples ~100ms) to ensure phone was lifted sky-high
+        val sleepThreshold = verticalThreshold * 2.2f + 1.5f
+        if (verticalDelta > sleepThreshold) {
+            consecutiveVerticalSamples++
+            if (consecutiveVerticalSamples >= 5) {
+                _motionDetected.value = true
+            }
+        } else {
+            consecutiveVerticalSamples = 0
+        }
+    }
+
+    /**
+     * Pocket Mode: Standard single-arm pickpocket extraction detection.
+     */
+    private fun handlePocketDetection(x: Float, y: Float, z: Float, totalG: Float, accelDeviation: Float) {
+        if (!lightBaselineSet) {
+            return
+        }
+
+        val verticalRatio = if (totalG > 0.1f) abs(y) / totalG else 0f
+        val isTiltedFlat = verticalRatio < tiltThreshold
+        val isExtractionJerk = accelDeviation > extractionMotionThreshold
+
+        if (isTiltedFlat && isExtractionJerk) {
+            lastExtractionTiltTime = System.currentTimeMillis()
+            evaluatePickpocketFusion()
+        }
+
+        _sensorReading.value = _sensorReading.value.copy(motionMagnitude = accelDeviation)
+    }
+
+    /**
+     * Travel Mode: Dynamically shifts behavior based on phone environment:
+     * 1. Phone is in pocket/bag -> Pocket Guard is dynamically active
+     * 2. Phone left idle for configurable minutes -> Desk Guard is dynamically active
+     * 3. Phone in active hand usage -> Silent / Dormant (nothing triggers)
+     */
+    private fun handleTravelDetection(x: Float, y: Float, z: Float, totalG: Float, accelDeviation: Float) {
+        val now = System.currentTimeMillis()
+        val verticalRatio = if (totalG > 0.1f) abs(y) / totalG else 0f
+        val inPocketLikelihood = (currentLight < 30f && (currentProximityCovered || verticalRatio > 0.65f))
+
+        if (inPocketLikelihood) {
+            _travelCurrentSubState.value = TravelSubState.IN_POCKET
+            handlePocketDetection(x, y, z, totalG, accelDeviation)
+        } else {
+            val idleDuration = now - lastMovementTimestamp
+            if (idleDuration >= travelIdleThresholdMs) {
+                _travelCurrentSubState.value = TravelSubState.DESK_IDLE
+                handleDeskDetection(x, y, z, false)
+            } else {
+                _travelCurrentSubState.value = TravelSubState.ACTIVE_USE
+                // In active use: nothing to trigger
+                _sensorReading.value = _sensorReading.value.copy(motionMagnitude = accelDeviation)
             }
         }
     }
@@ -258,7 +361,7 @@ class SensorFusion(context: Context) : SensorEventListener {
     private fun handleLight(event: SensorEvent) {
         currentLight = event.values[0]
 
-        if (_detectionMode == DetectionMode.POCKET || _detectionMode == DetectionMode.AUTO_POCKET) {
+        if (_detectionMode == DetectionMode.POCKET || _detectionMode == DetectionMode.TRAVEL) {
             if (!lightBaselineSet) {
                 // Calibrate baseline light inside pocket
                 if (pocketBaselineLight < 0f) {
@@ -294,7 +397,7 @@ class SensorFusion(context: Context) : SensorEventListener {
         val wasCovered = currentProximityCovered
         currentProximityCovered = isCovered
 
-        if (_detectionMode == DetectionMode.POCKET || _detectionMode == DetectionMode.AUTO_POCKET) {
+        if (_detectionMode == DetectionMode.POCKET || _detectionMode == DetectionMode.TRAVEL) {
             if (!initialProximityRecorded) {
                 pocketInitialProximityCovered = isCovered
                 initialProximityRecorded = true

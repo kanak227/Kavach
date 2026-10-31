@@ -9,6 +9,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.DirectionsWalk
 import androidx.compose.material.icons.automirrored.outlined.Send
 import androidx.compose.material.icons.automirrored.outlined.VolumeUp
 import androidx.compose.material.icons.outlined.*
@@ -288,28 +289,33 @@ private fun getFullEnglishManualSections(): List<ManualSection> {
             tip = "Keep the device still during the final second of countdown so it calibrates an accurate zero-gravity baseline."
         ),
         ManualSection(
+            icon = Icons.Outlined.DirectionsCar,
+            title = "1. Travel Mode: Dynamic Multi-Sensor Auto-Shift",
+            content = "Travel Mode is the ultimate commuter and transit defense system. All sensors are continuously working with smart dynamic shifting:\n\n" +
+                      "• Pocket & Bag Protection: As soon as you place your phone into a pocket, purse, or backpack, Pocket Guard extraction monitoring auto-engages.\n" +
+                      "• Idle Table Protection: If you set your phone down on a train tray, cafe table, or office desk and leave it stationary for your configured idle minutes (set in Settings -> Travel Mode Inactivity), Desk Mode auto-activates!\n" +
+                      "• Active Hand Usage: While you actively hold and interact with your phone, Kavach stays silent and triggers no alarms. It is still protected by Travel Mode, dynamically waiting for your next transition.",
+            tip = "Configure the Stationary Idle Threshold slider in Settings to control how quickly Desk Guard takes over when your phone rests stationary."
+        ),
+        ManualSection(
+            icon = Icons.Outlined.Bedtime,
+            title = "2. Sleep Mode: Bedside & Mattress Protection (Zero Dream Alarms)",
+            content = "Sleep Mode is an advanced evolution of desk protection specifically built for user comfort. Resting in bed often causes subtle mattress vibrations, dreaming twitches, and small position shifts. Sleep Mode isolates pure Y-axis vertical elevation with a Sky-High baseline lift threshold:\n\n" +
+                      "• Mattress rolls, light dream movements, and bed vibrations are 100% ignored.\n" +
+                      "• Alarms ONLY trigger when an intruder or thief lifts the device sky-high off its resting baseline ground for a sustained duration.",
+            tip = "Keep phone by your pillow or bedside table. You can sleep peacefully without waking up to accidental false alarms."
+        ),
+        ManualSection(
             icon = Icons.Outlined.Vibration,
-            title = "Desk Guard: Strict Vertical Lift Detection (Zero Slide False Alarms)",
-            content = "When resting on a table, desk, or bedside nightstand, Kavach calculates the exact normal vector perpendicular to the surface. Any horizontal sliding across the table produces zero vertical force and is 100% ignored, so you will never be woken up by accidental hand brushes while sleeping! The alarm triggers strictly when the phone is picked up vertically off its baseline ground. Sensitivity ranges from Level 1 (heavy deliberate lift required, maximum sleep protection) to Level 10 (ultra feather-touch) directly on the Home Dashboard slider.",
-            tip = "For overnight nightstand use, choose Level 1 or 2. You can slide the phone freely without triggering the alarm."
+            title = "3. Desk Mode: Instant Y-Axis Lift (Zero Slide False Alarms)",
+            content = "Desk Mode delivers razor-sharp, instant vertical lift pickup protection for office tables, study desks, and counters. Horizontal sliding across the desk surface produces a dot product of 0.0 with the surface normal vector and will NEVER sound the alarm. Instant vertical elevation off the surface immediately activates the security verification decoy.",
+            tip = "Adjust sensitivity from Level 1 to 10 on the Home Dashboard slider to tailor pickup firmness to your tabletop surface."
         ),
         ManualSection(
-            icon = Icons.Outlined.LightMode,
-            title = "Pocket Guard: 3-Sensor Voting Fusion & Anti-Walking Filter",
-            content = "Pocket Guard combines three independent hardware sensors to prevent pickpocketing:\n" +
-                      "1. Optical Proximity Sensor (detects pocket interior darkness & fabric proximity)\n" +
-                      "2. Ambient Light Sensor (detects rapid light surges when phone is pulled out)\n" +
-                      "3. Jerk/Tilt Accelerometer (detects vertical pocket withdrawal motion)\n\n" +
-                      "Kavach features an intelligent walking filter that continuously distinguishes between normal rhythmic walking/jogging oscillations and sudden snatch extractions.",
-            tip = "Calibrate the sensitivity slider to match your pants pocket depth and fabric thickness."
-        ),
-        ManualSection(
-            icon = Icons.Outlined.Loop,
-            title = "Pocket Guard Types: Standard vs Auto-Loop Commuter",
-            content = "Kavach provides two operational types for Pocket Guard (both use the exact same sensor detection logic):\n\n" +
-                      "• Type 1: Standard (Single-Arm): Arms once. Place phone in your pocket. Once extracted or triggered, you authenticate to disarm and the shield remains disarmed until manually armed again.\n\n" +
-                      "• Type 2: Auto-Loop Commuter: Engineered specifically for bus, train, and metro commutes. When activated, place your phone in your pocket. Each time you take out your phone and authenticate, you can use your phone freely while the screen is on (guard stays dormant). As soon as you finish and turn off the screen (or press power button), Kavach automatically re-arms in your pocket using your arming countdown delay without needing to touch the app! When you arrive at your destination, tap 'Authenticate & Close Auto-Loop' inside the app to end the session permanently.",
-            tip = "For daily commutes and public transport, use Type 2 Auto-Loop so you stay protected throughout your journey without repeatedly opening the app."
+            icon = Icons.AutoMirrored.Outlined.DirectionsWalk,
+            title = "4. Pocket Guard: Single-Arm Extraction Defense",
+            content = "Pocket Guard provides focused single-arm security for pockets and bags. Armed manually each time with the grace countdown. Combines 3-sensor voting fusion (Ambient Light surge, Optical Proximity uncover, and Jerk/Tilt acceleration) while filtering out rhythmic leg pendulums and walking steps. Disarms permanently upon biometric verification.",
+            tip = "Slide phone into your pocket during the arming countdown. Once extracted, the alarm sounds unless verified."
         ),
         ManualSection(
             icon = Icons.AutoMirrored.Outlined.VolumeUp,

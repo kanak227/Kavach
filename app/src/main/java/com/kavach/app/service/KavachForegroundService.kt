@@ -129,7 +129,7 @@ class KavachForegroundService : Service() {
                 .putInt("shield_duration_minutes", durationMinutes)
                 .putInt("auth_countdown_seconds", authCountdownSeconds)
                 .putString("detection_mode", detectionMode.name)
-                .putBoolean("auto_pocket_session_active", detectionMode == DetectionMode.AUTO_POCKET)
+                .putBoolean("auto_pocket_session_active", false)
                 .putInt("arming_countdown_seconds", armingCountdownSeconds)
                 .putInt("sensitivity_level", sensitivity)
                 .putInt("alarm_volume_percent", alarmVolumePercent)
@@ -205,33 +205,7 @@ class KavachForegroundService : Service() {
 
     private val screenOffReceiver = object : android.content.BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            if (intent?.action == Intent.ACTION_SCREEN_OFF) {
-                val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-                val modeStr = prefs.getString("detection_mode", DetectionMode.MOTION.name) ?: DetectionMode.MOTION.name
-                val isAutoPocket = modeStr == DetectionMode.AUTO_POCKET.name
-                val isSessionActive = prefs.getBoolean("auto_pocket_session_active", false)
-                val isShieldArmed = prefs.getBoolean(KEY_SHIELD_ARMED, false)
-                val isAlarming = prefs.getBoolean("shield_is_alarming", false)
-
-                if (isAutoPocket && isSessionActive && !isShieldArmed && !isAlarming) {
-                    val durationMinutes = prefs.getInt("shield_duration_minutes", 120)
-                    val armingCountdownSecs = prefs.getInt("arming_countdown_seconds", 5)
-                    val authCountdownSecs = prefs.getInt("auth_countdown_seconds", 5)
-                    val sensitivity = prefs.getInt("sensitivity_level", 5)
-                    val volumePercent = prefs.getInt("alarm_volume_percent", 100)
-
-                    arm(
-                        context = applicationContext,
-                        durationMinutes = durationMinutes,
-                        armingCountdownSeconds = armingCountdownSecs,
-                        authCountdownSeconds = authCountdownSecs,
-                        detectionMode = DetectionMode.AUTO_POCKET,
-                        sensitivity = sensitivity,
-                        alarmVolumePercent = volumePercent,
-                        skipCountdown = false
-                    )
-                }
-            }
+            // Screen off handling (Auto-loop removed as requested: pocket guard is standard single-arm manual only)
         }
     }
 
@@ -413,7 +387,9 @@ class KavachForegroundService : Service() {
         sensorFusion?.apply {
             setDetectionMode(mode)
             setSensitivity(sensitivity)
-            setPocketDetectionEnabled(mode == DetectionMode.POCKET)
+            val cachePrefs = getSharedPreferences("kavach_cache_prefs", Context.MODE_PRIVATE)
+            val idleMins = try { cachePrefs.getInt("travel_idle_minutes", 3) } catch (_: Exception) { 3 }
+            setTravelIdleMinutes(idleMins)
             recalibrate()
             startListening()
         }
