@@ -436,31 +436,61 @@ internal fun DailyGuardUsageGraph(
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // Canvas Bar Chart
-            Box(
+            // Chart Area with Y-Axis on left and Canvas on right
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(180.dp)
+                    .height(160.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Canvas(modifier = Modifier.fillMaxSize()) {
+                // Y-Axis Column (60m, 30m, 0m)
+                Column(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .width(32.dp)
+                        .padding(bottom = 4.dp),
+                    verticalArrangement = Arrangement.SpaceBetween,
+                    horizontalAlignment = Alignment.End
+                ) {
+                    Text("60m", fontSize = 9.sp, color = colors.textMuted, fontFamily = RajdhaniFamily, fontWeight = FontWeight.Bold)
+                    Text("30m", fontSize = 9.sp, color = colors.textMuted, fontFamily = RajdhaniFamily, fontWeight = FontWeight.Bold)
+                    Text("0m", fontSize = 9.sp, color = colors.textMuted, fontFamily = RajdhaniFamily, fontWeight = FontWeight.Bold)
+                }
+
+                Spacer(modifier = Modifier.width(6.dp))
+
+                // Canvas Bar Chart
+                Canvas(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                ) {
                     val w = size.width
-                    val h = size.height - 30f // reserve space for hour labels
+                    val h = size.height - 4f // reserve 4px at bottom for crisp baseline
                     val slotWidth = w / hours.size
 
-                    // Draw baseline axis
+                    // Draw 60m top guide line
                     drawLine(
-                        color = Color.Gray.copy(alpha = 0.3f),
-                        start = Offset(0f, h),
-                        end = Offset(w, h),
+                        color = Color.Gray.copy(alpha = 0.12f),
+                        start = Offset(0f, 2f),
+                        end = Offset(w, 2f),
                         strokeWidth = 1f
                     )
 
-                    // Draw grid reference lines at 30m and 60m
+                    // Draw 30m mid guide line
                     drawLine(
                         color = Color.Gray.copy(alpha = 0.15f),
                         start = Offset(0f, h / 2),
                         end = Offset(w, h / 2),
                         strokeWidth = 1f
+                    )
+
+                    // Draw 0m baseline axis
+                    drawLine(
+                        color = Color.Gray.copy(alpha = 0.35f),
+                        start = Offset(0f, h),
+                        end = Offset(w, h),
+                        strokeWidth = 1.5f
                     )
 
                     hours.forEachIndexed { index, hour ->
@@ -520,36 +550,36 @@ internal fun DailyGuardUsageGraph(
                         }
                     }
                 }
+            }
 
-                // X-Axis Hour Labels
-                if (view24h) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .align(Alignment.BottomCenter)
-                            .padding(top = 8.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text("12 AM", fontSize = 9.sp, color = colors.textMuted)
-                        Text("6 AM", fontSize = 9.sp, color = colors.textMuted)
-                        Text("12 PM", fontSize = 9.sp, color = colors.textMuted)
-                        Text("6 PM", fontSize = 9.sp, color = colors.textMuted)
-                        Text("11 PM", fontSize = 9.sp, color = colors.textMuted)
-                    }
-                } else {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .align(Alignment.BottomCenter)
-                            .padding(top = 8.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text("9 AM", fontSize = 10.sp, color = colors.textMuted)
-                        Text("12 PM", fontSize = 10.sp, color = colors.textMuted)
-                        Text("3 PM", fontSize = 10.sp, color = colors.textMuted)
-                        Text("6 PM", fontSize = 10.sp, color = colors.textMuted)
-                        Text("9 PM", fontSize = 10.sp, color = colors.textMuted)
-                    }
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // X-Axis Hour Labels — strictly below the chart with left offset matching Y-axis
+            if (view24h) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 38.dp, end = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text("12 AM", fontSize = 9.sp, color = colors.textMuted, fontFamily = RajdhaniFamily)
+                    Text("6 AM", fontSize = 9.sp, color = colors.textMuted, fontFamily = RajdhaniFamily)
+                    Text("12 PM", fontSize = 9.sp, color = colors.textMuted, fontFamily = RajdhaniFamily)
+                    Text("6 PM", fontSize = 9.sp, color = colors.textMuted, fontFamily = RajdhaniFamily)
+                    Text("11 PM", fontSize = 9.sp, color = colors.textMuted, fontFamily = RajdhaniFamily)
+                }
+            } else {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 38.dp, end = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text("9 AM", fontSize = 10.sp, color = colors.textMuted, fontFamily = RajdhaniFamily)
+                    Text("12 PM", fontSize = 10.sp, color = colors.textMuted, fontFamily = RajdhaniFamily)
+                    Text("3 PM", fontSize = 10.sp, color = colors.textMuted, fontFamily = RajdhaniFamily)
+                    Text("6 PM", fontSize = 10.sp, color = colors.textMuted, fontFamily = RajdhaniFamily)
+                    Text("9 PM", fontSize = 10.sp, color = colors.textMuted, fontFamily = RajdhaniFamily)
                 }
             }
         }

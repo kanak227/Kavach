@@ -272,13 +272,34 @@ fun SettingsScreen(
                     Slider(
                         value = settings.travelIdleMinutes.toFloat(),
                         onValueChange = { onSettingsChanged(settings.copy(travelIdleMinutes = it.roundToInt())) },
-                        valueRange = 1f..15f,
-                        steps = 13,
+                        valueRange = 1f..30f,
+                        steps = 28,
                         colors = SliderDefaults.colors(
                             thumbColor = activeAccent,
                             activeTrackColor = activeAccent
                         )
                     )
+                    if (settings.travelIdleMinutes == 1) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = com.kavach.app.ui.theme.CyberRed.copy(alpha = 0.15f),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, com.kavach.app.ui.theme.CyberRed.copy(alpha = 0.5f)),
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "⚠️ 1 min: Recommended for testing purposes only",
+                                    fontFamily = RajdhaniFamily,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 12.sp,
+                                    color = com.kavach.app.ui.theme.CyberRed
+                                )
+                            }
+                        }
+                    }
                     Text(
                         text = "When in Travel Mode, if your phone is not in a pocket/bag and left still for this duration, Desk Guard automatically engages to guard against table theft.",
                         style = MaterialTheme.typography.bodySmall,

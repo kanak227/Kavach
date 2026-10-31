@@ -73,6 +73,18 @@ class SensorFusion(context: Context) : SensorEventListener {
     private val calibrationCount = 20
     private var consecutiveVerticalSamples = 0
 
+    // Dynamic Desk Baseline for Travel Mode (calibrated fresh when placed idle on each surface)
+    private var travelDeskBaselineSet = false
+    private var travelDeskCalibrationSamples = 0
+    private var travelBaselineX = 0f
+    private var travelBaselineY = 0f
+    private var travelBaselineZ = 0f
+    private var travelBaselineG = 9.81f
+    private var travelNormalX = 0f
+    private var travelNormalY = 0f
+    private var travelNormalZ = 1f
+    private var travelConsecutiveVerticalSamples = 0
+
     // === Pickpocket Guard Mode Variables (POCKET) ===
     private var pocketBaselineLight = -1f
     private var lightCalibrationSamples = 0
@@ -159,6 +171,17 @@ class SensorFusion(context: Context) : SensorEventListener {
         normalZ = 1f
         consecutiveVerticalSamples = 0
 
+        travelDeskBaselineSet = false
+        travelDeskCalibrationSamples = 0
+        travelBaselineX = 0f
+        travelBaselineY = 0f
+        travelBaselineZ = 0f
+        travelBaselineG = 9.81f
+        travelNormalX = 0f
+        travelNormalY = 0f
+        travelNormalZ = 1f
+        travelConsecutiveVerticalSamples = 0
+
         lightBaselineSet = false
         lightCalibrationSamples = 0
         pocketBaselineLight = -1f
@@ -231,8 +254,9 @@ class SensorFusion(context: Context) : SensorEventListener {
     }
 
     /**
-     * Desk Mode: Pure vertical projection off baseline resting angle.
-     * Instant detection. Any horizontal surface sliding produces dot product of 0.0 with normal.
+     * Desk Mode: Pure vertical projection with strict Horizontal Zig-Zag rejection.
+     * Instant detection on upward lift off table. Horizontal sliding/zig-zag produces
+     * high tangential forces that are isolated and rejected completely.
      */
     private fun handleDeskDetection(x: Float, y: Float, z: Float, isSecondary: Boolean) {
         if (!baselineSet) {
@@ -253,14 +277,25 @@ class SensorFusion(context: Context) : SensorEventListener {
         }
 
         val normalForce = (x * normalX + y * normalY + z * normalZ)
-        val verticalDelta = abs(normalForce - baselineG)
+        val verticalDelta = normalForce - baselineG
+        val absVerticalDelta = abs(verticalDelta)
+
+        // Calculate tangential horizontal acceleration vector along the surface plane
+        val tanX = x - normalForce * normalX
+        val tanY = y - normalForce * normalY
+        val tanZ = z - normalForce * normalZ
+        val horizontalForce = sqrt(tanX * tanX + tanY * tanY + tanZ * tanZ)
+
+        // Strict horizontal sliding/zig-zag immunity:
+        // When sliding horizontally, horizontal force dominates vertical lift.
+        val isHorizontalSlide = horizontalForce > 1.25f * absVerticalDelta || (horizontalForce > 2.0f && absVerticalDelta < verticalThreshold * 1.5f)
 
         if (!isSecondary) {
-            _sensorReading.value = _sensorReading.value.copy(motionMagnitude = verticalDelta)
+            _sensorReading.value = _sensorReading.value.copy(motionMagnitude = absVerticalDelta)
         }
 
-        // Instant lift off surface
-        if (verticalDelta > verticalThreshold) {
+        // Instant lift off surface (strictly true upward lift, zero trigger on horizontal zig-zag)
+        if (!isHorizontalSlide && absVerticalDelta > verticalThreshold) {
             consecutiveVerticalSamples++
             if (consecutiveVerticalSamples >= 2) {
                 _motionDetected.value = true
@@ -272,8 +307,8 @@ class SensorFusion(context: Context) : SensorEventListener {
 
     /**
      * Sleep Mode: High-tolerance nocturnal protection.
-     * Filters dream-twitching, rolling in bed, and mattress bounce.
-     * Triggers strictly when lifted high and held deliberately up (sky-high pickup).
+     * Filters dream-twitching, rolling in bed, mattress bounce, and horizontal sliding.
+     * Triggers strictly when lifted sky-high into the air.
      */
     private fun handleSleepDetection(x: Float, y: Float, z: Float) {
         if (!baselineSet) {
@@ -294,16 +329,25 @@ class SensorFusion(context: Context) : SensorEventListener {
         }
 
         val normalForce = (x * normalX + y * normalY + z * normalZ)
-        val verticalDelta = abs(normalForce - baselineG)
+        val verticalDelta = normalForce - baselineG
+        val absVerticalDelta = abs(verticalDelta)
 
-        _sensorReading.value = _sensorReading.value.copy(motionMagnitude = verticalDelta)
+        // Tangential acceleration on bed surface
+        val tanX = x - normalForce * normalX
+        val tanY = y - normalForce * normalY
+        val tanZ = z - normalForce * normalZ
+        val horizontalForce = sqrt(tanX * tanX + tanY * tanY + tanZ * tanZ)
 
-        // Sleep mode threshold is significantly higher (deliberate high lift: 4.8m/s² scaled)
-        // and requires sustained consecutive samples (5 samples ~100ms) to ensure phone was lifted sky-high
-        val sleepThreshold = verticalThreshold * 2.2f + 1.5f
-        if (verticalDelta > sleepThreshold) {
+        // Filter mattress movement, bed sheet sliding, and horizontal zig-zags
+        val isHorizontalOrMattressBounce = horizontalForce > 1.20f * absVerticalDelta || (horizontalForce > 1.8f && absVerticalDelta < 5.5f)
+
+        _sensorReading.value = _sensorReading.value.copy(motionMagnitude = absVerticalDelta)
+
+        // High sky-high threshold (6.5 m/s² default) + sustained 6 consecutive samples (~120ms)
+        val sleepThreshold = verticalThreshold * 2.5f + 2.0f
+        if (!isHorizontalOrMattressBounce && absVerticalDelta > sleepThreshold) {
             consecutiveVerticalSamples++
-            if (consecutiveVerticalSamples >= 5) {
+            if (consecutiveVerticalSamples >= 6) {
                 _motionDetected.value = true
             }
         } else {
@@ -334,7 +378,7 @@ class SensorFusion(context: Context) : SensorEventListener {
     /**
      * Travel Mode: Dynamically shifts behavior based on phone environment:
      * 1. Phone is in pocket/bag -> Pocket Guard is dynamically active
-     * 2. Phone left idle for configurable minutes -> Desk Guard is dynamically active
+     * 2. Phone left idle for configurable minutes -> Desk Guard dynamically locks fresh table baseline
      * 3. Phone in active hand usage -> Silent / Dormant (nothing triggers)
      */
     private fun handleTravelDetection(x: Float, y: Float, z: Float, totalG: Float, accelDeviation: Float) {
@@ -344,17 +388,69 @@ class SensorFusion(context: Context) : SensorEventListener {
 
         if (inPocketLikelihood) {
             _travelCurrentSubState.value = TravelSubState.IN_POCKET
+            // Reset table baseline when in pocket so it doesn't carry stale table data
+            travelDeskBaselineSet = false
+            travelDeskCalibrationSamples = 0
             handlePocketDetection(x, y, z, totalG, accelDeviation)
         } else {
             val idleDuration = now - lastMovementTimestamp
             if (idleDuration >= travelIdleThresholdMs) {
                 _travelCurrentSubState.value = TravelSubState.DESK_IDLE
-                handleDeskDetection(x, y, z, false)
+                handleTravelDeskDetection(x, y, z)
             } else {
                 _travelCurrentSubState.value = TravelSubState.ACTIVE_USE
-                // In active use: nothing to trigger
+                // In active hand use: reset table baseline for when next set down
+                travelDeskBaselineSet = false
+                travelDeskCalibrationSamples = 0
                 _sensorReading.value = _sensorReading.value.copy(motionMagnitude = accelDeviation)
             }
+        }
+    }
+
+    /**
+     * Travel Mode Desk Guard:
+     * When stationary on a surface for the idle threshold, locks a fresh surface normal
+     * for THAT SPECIFIC surface and monitors for vertical pickup with horizontal zig-zag immunity.
+     */
+    private fun handleTravelDeskDetection(x: Float, y: Float, z: Float) {
+        if (!travelDeskBaselineSet) {
+            travelBaselineX = ((travelBaselineX * travelDeskCalibrationSamples) + x) / (travelDeskCalibrationSamples + 1)
+            travelBaselineY = ((travelBaselineY * travelDeskCalibrationSamples) + y) / (travelDeskCalibrationSamples + 1)
+            travelBaselineZ = ((travelBaselineZ * travelDeskCalibrationSamples) + z) / (travelDeskCalibrationSamples + 1)
+            travelDeskCalibrationSamples++
+            if (travelDeskCalibrationSamples >= 20) {
+                val mag = sqrt(travelBaselineX * travelBaselineX + travelBaselineY * travelBaselineY + travelBaselineZ * travelBaselineZ)
+                travelBaselineG = if (mag > 0.1f) mag else 9.81f
+                travelNormalX = travelBaselineX / travelBaselineG
+                travelNormalY = travelBaselineY / travelBaselineG
+                travelNormalZ = travelBaselineZ / travelBaselineG
+                travelConsecutiveVerticalSamples = 0
+                travelDeskBaselineSet = true
+            }
+            return
+        }
+
+        val normalForce = (x * travelNormalX + y * travelNormalY + z * travelNormalZ)
+        val verticalDelta = normalForce - travelBaselineG
+        val absVerticalDelta = abs(verticalDelta)
+
+        val tanX = x - normalForce * travelNormalX
+        val tanY = y - normalForce * travelNormalY
+        val tanZ = z - normalForce * travelNormalZ
+        val horizontalForce = sqrt(tanX * tanX + tanY * tanY + tanZ * tanZ)
+
+        // Ignore horizontal surface sliding / zig-zag
+        val isHorizontalSlide = horizontalForce > 1.25f * absVerticalDelta || (horizontalForce > 2.0f && absVerticalDelta < verticalThreshold * 1.5f)
+
+        _sensorReading.value = _sensorReading.value.copy(motionMagnitude = absVerticalDelta)
+
+        if (!isHorizontalSlide && absVerticalDelta > verticalThreshold) {
+            travelConsecutiveVerticalSamples++
+            if (travelConsecutiveVerticalSamples >= 2) {
+                _motionDetected.value = true
+            }
+        } else {
+            travelConsecutiveVerticalSamples = 0
         }
     }
 
