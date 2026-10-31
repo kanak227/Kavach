@@ -360,8 +360,8 @@ fun SettingsScreen(
         // About Item
         SettingsItem(
             icon = Icons.Outlined.Info,
-            title = "Kavach v1.1.0 (Alternate)",
-            subtitle = "4-Mode Adaptive Stealth Anti-Theft Shield",
+            title = "Kavach v1.0.0",
+            subtitle = "Smart Anti-Theft & Stealth Motion Guard",
             onClick = { },
             colors = colors
         )
