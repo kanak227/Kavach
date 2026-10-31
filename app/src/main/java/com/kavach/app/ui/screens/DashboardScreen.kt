@@ -468,7 +468,8 @@ fun DashboardScreen(
         Spacer(modifier = Modifier.height(12.dp))
         DailyGuardUsageGraph(
             hourlyUsage = hourlyUsage,
-            colors = colors
+            colors = colors,
+            isShieldArmed = (shieldState == ShieldState.ARMED)
         )
 
         // Bottom spacing for bottom navigation bar

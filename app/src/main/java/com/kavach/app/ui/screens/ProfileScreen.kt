@@ -310,13 +310,29 @@ private fun ProfileTextField(
 @Composable
 internal fun DailyGuardUsageGraph(
     hourlyUsage: Map<Int, Map<DetectionMode, Int>>,
-    colors: KavachColors
+    colors: KavachColors,
+    isShieldArmed: Boolean = false
 ) {
     // Mode color mapping
     val travelColor = Color(0xFF06B6D4) // Cyan
     val sleepColor = Color(0xFFA855F7)  // Purple
     val deskColor = Color(0xFFF59E0B)   // Amber/Gold
     val pocketColor = Color(0xFF10B981) // Green
+
+    val currentHour = remember { java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY) }
+    // Default to 24h view if current hour is outside 9 AM - 9 PM so live activity is never cut off
+    var view24h by remember { mutableStateOf(currentHour !in 9..21) }
+
+    val hours = if (view24h) (0..23).toList() else (9..21).toList()
+    val maxSeconds = 3600f // 1 hour = 3600s
+
+    // Calculate total protection seconds today
+    val totalSecondsToday = remember(hourlyUsage) {
+        hourlyUsage.values.flatMap { it.values }.sum()
+    }
+    val totalMins = totalSecondsToday / 60
+    val totalSecsRemainder = totalSecondsToday % 60
+    val totalTimeText = if (totalMins > 0) "${totalMins}m ${totalSecsRemainder}s" else "${totalSecsRemainder}s"
 
     Card(
         modifier = Modifier
@@ -326,6 +342,87 @@ internal fun DailyGuardUsageGraph(
         colors = CardDefaults.cardColors(containerColor = colors.card)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
+            // Header with Live Protection Status & View Mode Toggle
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (isShieldArmed) {
+                            Box(
+                                modifier = Modifier
+                                    .size(8.dp)
+                                    .clip(CircleShape)
+                                    .background(pocketColor)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "LIVE RECORDING",
+                                fontFamily = OrbitronFamily,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 11.sp,
+                                color = pocketColor
+                            )
+                        } else {
+                            Text(
+                                text = "TODAY'S ACTIVITY",
+                                fontFamily = OrbitronFamily,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 11.sp,
+                                color = colors.textPrimary
+                            )
+                        }
+                    }
+                    Text(
+                        text = "Total Protected: $totalTimeText",
+                        fontSize = 12.sp,
+                        color = colors.textSecondary,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+
+                // Compact View Selector: 24H vs 9A-9P
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(colors.background.copy(alpha = 0.6f))
+                        .padding(2.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(if (view24h) (if (colors.isDark) KavachGold else CyberCyan).copy(alpha = 0.25f) else Color.Transparent)
+                            .clickable { view24h = true }
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = "24H",
+                            fontSize = 10.sp,
+                            fontWeight = if (view24h) FontWeight.Bold else FontWeight.Normal,
+                            color = if (view24h) (if (colors.isDark) KavachGold else CyberCyan) else colors.textMuted
+                        )
+                    }
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(if (!view24h) (if (colors.isDark) KavachGold else CyberCyan).copy(alpha = 0.25f) else Color.Transparent)
+                            .clickable { view24h = false }
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = "9A-9P",
+                            fontSize = 10.sp,
+                            fontWeight = if (!view24h) FontWeight.Bold else FontWeight.Normal,
+                            color = if (!view24h) (if (colors.isDark) KavachGold else CyberCyan) else colors.textMuted
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
             // Mode Legend
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -337,12 +434,9 @@ internal fun DailyGuardUsageGraph(
                 LegendItem(label = "Pocket", color = pocketColor)
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
-            // Canvas Bar Chart for hours 9 AM (9) to 9 PM (21)
-            val hours = (9..21).toList()
-            val maxMinutes = 60f
-
+            // Canvas Bar Chart
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -371,63 +465,91 @@ internal fun DailyGuardUsageGraph(
 
                     hours.forEachIndexed { index, hour ->
                         val xCenter = (index * slotWidth) + (slotWidth / 2f)
-                        val barWidth = (slotWidth * 0.65f).coerceAtLeast(8f)
+                        val barWidth = (slotWidth * 0.70f).coerceAtLeast(6f)
                         val xLeft = xCenter - (barWidth / 2f)
 
                         val usageForHour = hourlyUsage[hour] ?: emptyMap()
-                        val travelMins = usageForHour[DetectionMode.TRAVEL] ?: 0
-                        val sleepMins = usageForHour[DetectionMode.SLEEP] ?: 0
-                        val deskMins = usageForHour[DetectionMode.DESK] ?: 0
-                        val pocketMins = usageForHour[DetectionMode.POCKET] ?: 0
+                        val travelSecs = usageForHour[DetectionMode.TRAVEL] ?: 0
+                        val sleepSecs = usageForHour[DetectionMode.SLEEP] ?: 0
+                        val deskSecs = usageForHour[DetectionMode.DESK] ?: 0
+                        val pocketSecs = usageForHour[DetectionMode.POCKET] ?: 0
 
-                        val totalMins = (travelMins + sleepMins + deskMins + pocketMins).coerceAtMost(60)
+                        val totalSecs = (travelSecs + sleepSecs + deskSecs + pocketSecs).coerceAtMost(3600)
 
-                        if (totalMins > 0) {
+                        if (totalSecs > 0) {
                             var currentY = h
 
-                            // Stacked bars
+                            // Stacked bars: Pocket, Desk, Sleep, Travel
                             val segments = listOf(
-                                pocketMins to pocketColor,
-                                deskMins to deskColor,
-                                sleepMins to sleepColor,
-                                travelMins to travelColor
+                                pocketSecs to pocketColor,
+                                deskSecs to deskColor,
+                                sleepSecs to sleepColor,
+                                travelSecs to travelColor
                             )
 
-                            segments.forEach { (mins, color) ->
-                                if (mins > 0) {
-                                    val segmentHeight = (mins / maxMinutes) * h
+                            segments.forEach { (secs, color) ->
+                                if (secs > 0) {
+                                    val scaledHeight = (secs.toFloat() / maxSeconds) * h
+                                    // Minimum 8px height so even 1-2 seconds of live testing are immediately visible
+                                    val segmentHeight = scaledHeight.coerceAtLeast(8f)
                                     drawRect(
                                         color = color,
-                                        topLeft = Offset(xLeft, currentY - segmentHeight),
+                                        topLeft = Offset(xLeft, (currentY - segmentHeight).coerceAtLeast(0f)),
                                         size = Size(barWidth, segmentHeight)
                                     )
                                     currentY -= segmentHeight
                                 }
                             }
+
+                            // If this hour is current hour and armed, draw a live pulse indicator above the bar
+                            if (hour == currentHour && isShieldArmed) {
+                                drawCircle(
+                                    color = pocketColor,
+                                    radius = 3.5f,
+                                    center = Offset(xCenter, (currentY - 8f).coerceAtLeast(8f))
+                                )
+                            }
                         } else {
                             // Subtle empty dot at baseline
+                            val isCurrentHour = (hour == currentHour)
                             drawCircle(
-                                color = Color.Gray.copy(alpha = 0.25f),
-                                radius = 2.5f,
+                                color = if (isCurrentHour && isShieldArmed) pocketColor else Color.Gray.copy(alpha = 0.25f),
+                                radius = if (isCurrentHour && isShieldArmed) 4f else 2.5f,
                                 center = Offset(xCenter, h - 3f)
                             )
                         }
                     }
                 }
 
-                // X-Axis Hour Labels (9 AM, 12 PM, 3 PM, 6 PM, 9 PM)
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .align(Alignment.BottomCenter)
-                        .padding(top = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text("9 AM", fontSize = 10.sp, color = colors.textMuted)
-                    Text("12 PM", fontSize = 10.sp, color = colors.textMuted)
-                    Text("3 PM", fontSize = 10.sp, color = colors.textMuted)
-                    Text("6 PM", fontSize = 10.sp, color = colors.textMuted)
-                    Text("9 PM", fontSize = 10.sp, color = colors.textMuted)
+                // X-Axis Hour Labels
+                if (view24h) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .align(Alignment.BottomCenter)
+                            .padding(top = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("12 AM", fontSize = 9.sp, color = colors.textMuted)
+                        Text("6 AM", fontSize = 9.sp, color = colors.textMuted)
+                        Text("12 PM", fontSize = 9.sp, color = colors.textMuted)
+                        Text("6 PM", fontSize = 9.sp, color = colors.textMuted)
+                        Text("11 PM", fontSize = 9.sp, color = colors.textMuted)
+                    }
+                } else {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .align(Alignment.BottomCenter)
+                            .padding(top = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("9 AM", fontSize = 10.sp, color = colors.textMuted)
+                        Text("12 PM", fontSize = 10.sp, color = colors.textMuted)
+                        Text("3 PM", fontSize = 10.sp, color = colors.textMuted)
+                        Text("6 PM", fontSize = 10.sp, color = colors.textMuted)
+                        Text("9 PM", fontSize = 10.sp, color = colors.textMuted)
+                    }
                 }
             }
         }

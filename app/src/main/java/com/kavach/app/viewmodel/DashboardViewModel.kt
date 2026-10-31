@@ -171,6 +171,16 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
             KavachForegroundService.serviceRemainingSeconds.collect { sec ->
                 if (KavachForegroundService.isServiceRunning || sec > 0L) {
                     _remainingSeconds.value = sec
+                    if (_shieldState.value == ShieldState.ARMED) {
+                        val cal = java.util.Calendar.getInstance()
+                        val hour = cal.get(java.util.Calendar.HOUR_OF_DAY)
+                        val mode = settings.value.detectionMode
+                        val cur = _hourlyUsage.value.toMutableMap()
+                        val hourMap = (cur[hour] ?: emptyMap()).toMutableMap()
+                        hourMap[mode] = (hourMap[mode] ?: 0) + 1
+                        cur[hour] = hourMap
+                        _hourlyUsage.value = cur
+                    }
                 }
             }
         }
@@ -260,6 +270,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
             alarmVolumePercent = s.alarmVolumePercent,
             skipCountdown = false
         )
+        refreshUsageStats()
     }
 
     /**
@@ -378,6 +389,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         val app = getApplication<Application>()
         KavachForegroundService.disarm(app)
         markNightScheduleDisarmedByUser()
+        refreshUsageStats()
     }
 
     /**
@@ -408,6 +420,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
 
         // Guard stops at that exact moment without any delay
         _shieldState.value = ShieldState.DISARMED
+        refreshUsageStats()
         _remainingSeconds.value = 0
 
         // Prevent night schedule from re-arming after verification

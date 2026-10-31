@@ -92,26 +92,40 @@ class UserProfileRepository(private val context: Context) {
     }
 
     /**
-     * Records guard mode usage for daily statistics.
-     * Stored in shared preferences for today's hourly usage (9 AM to 9 PM).
+     * Records guard mode usage in seconds for live real-time statistics across all 24 hours.
      */
-    fun recordModeUsage(hour: Int, mode: DetectionMode, durationMinutes: Int = 1) {
-        if (hour in 9..21) {
-            val key = "usage_${todayDateKey()}_${hour}_${mode.name}"
+    fun recordModeUsageSeconds(hour: Int, mode: DetectionMode, seconds: Int = 1) {
+        if (hour in 0..23) {
+            val key = "usage_sec_${todayDateKey()}_${hour}_${mode.name}"
             val existing = sharedPrefs.getInt(key, 0)
-            sharedPrefs.edit().putInt(key, existing + durationMinutes).apply()
+            sharedPrefs.edit().putInt(key, existing + seconds).apply()
         }
     }
 
+    /**
+     * Records guard mode usage in minutes (for legacy compatibility).
+     */
+    fun recordModeUsage(hour: Int, mode: DetectionMode, durationMinutes: Int = 1) {
+        recordModeUsageSeconds(hour, mode, durationMinutes * 60)
+    }
+
+    /**
+     * Returns total seconds protected per mode for each hour 0..23 today.
+     */
     fun getTodayHourlyUsage(): Map<Int, Map<DetectionMode, Int>> {
         val result = mutableMapOf<Int, MutableMap<DetectionMode, Int>>()
         val dateKey = todayDateKey()
-        for (hour in 9..21) {
+        for (hour in 0..23) {
             val hourMap = mutableMapOf<DetectionMode, Int>()
             for (mode in DetectionMode.values()) {
-                val key = "usage_${dateKey}_${hour}_${mode.name}"
-                val minutes = sharedPrefs.getInt(key, 0)
-                hourMap[mode] = minutes
+                val secKey = "usage_sec_${dateKey}_${hour}_${mode.name}"
+                val oldMinKey = "usage_${dateKey}_${hour}_${mode.name}"
+                var seconds = sharedPrefs.getInt(secKey, -1)
+                if (seconds == -1) {
+                    val oldMinutes = sharedPrefs.getInt(oldMinKey, 0)
+                    seconds = oldMinutes * 60
+                }
+                hourMap[mode] = seconds
             }
             result[hour] = hourMap
         }

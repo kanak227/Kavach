@@ -19,6 +19,7 @@ import com.kavach.app.alarm.AlarmController
 import com.kavach.app.data.DetectionMode
 import com.kavach.app.data.SensorReading
 import com.kavach.app.data.ShieldState
+import com.kavach.app.data.UserProfileRepository
 import com.kavach.app.sensor.SensorFusion
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -428,6 +429,13 @@ class KavachForegroundService : Service() {
                 delay(1000)
                 remaining--
                 _serviceRemainingSeconds.value = remaining
+                if (_serviceShieldState.value == ShieldState.ARMED) {
+                    try {
+                        val cal = java.util.Calendar.getInstance()
+                        val hour = cal.get(java.util.Calendar.HOUR_OF_DAY)
+                        UserProfileRepository(applicationContext).recordModeUsageSeconds(hour, mode, 1)
+                    } catch (_: Exception) {}
+                }
                 // Silent background timer countdown - no notification spam
             }
 
