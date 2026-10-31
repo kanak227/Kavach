@@ -52,6 +52,7 @@ fun DashboardScreen(
     decoyCountdown: Int,
     sensorReading: SensorReading,
     settings: KavachSettings,
+    hourlyUsage: Map<Int, Map<DetectionMode, Int>> = emptyMap(),
     isNightGuardDismissedForTonight: Boolean = false,
     isNightWindowActive: Boolean = false,
     onArmShield: () -> Unit,
@@ -65,7 +66,7 @@ fun DashboardScreen(
     onTimerPresetSelected: (TimerPreset) -> Unit,
     onSensitivityChanged: (Int) -> Unit,
     onSettingsChanged: (KavachSettings) -> Unit,
-    onNavigateToSettings: () -> Unit,
+    onNavigateToSettings: () -> Unit = {},
     onNavigateToProfile: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -133,7 +134,6 @@ fun DashboardScreen(
                         TimerPreset.MIN_30 -> "30 min"
                         TimerPreset.HOUR_1 -> "1 hour"
                         TimerPreset.HOUR_2 -> "2 hours"
-                        TimerPreset.HOUR_4 -> "4 hours"
                     }
                     Text(
                         text = "Duration: $durationText",
@@ -241,20 +241,6 @@ fun DashboardScreen(
                         tint = colors.textSecondary
                     )
                 }
-                IconButton(onClick = onNavigateToProfile) {
-                    Icon(
-                        imageVector = Icons.Outlined.Person,
-                        contentDescription = "Profile",
-                        tint = colors.textSecondary
-                    )
-                }
-                IconButton(onClick = onNavigateToSettings) {
-                    Icon(
-                        imageVector = Icons.Outlined.Settings,
-                        contentDescription = "Settings",
-                        tint = colors.textSecondary
-                    )
-                }
             }
         }
 
@@ -282,41 +268,13 @@ fun DashboardScreen(
 
         Spacer(modifier = Modifier.height(20.dp))
 
-        // === ARM / DISARM Button ===
-        AnimatedContent(
-            targetState = shieldState,
-            transitionSpec = {
-                fadeIn() togetherWith fadeOut()
-            },
-            label = "armButton"
-        ) { state ->
-            when (state) {
-                ShieldState.DISARMED -> {
-                    Button(
-                        onClick = { showArmDialog = true },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(56.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (colors.isDark) KavachGold.copy(alpha = 0.22f) else Color(0xFF00758F),
-                            contentColor = if (colors.isDark) KavachGold else Color.White
-                        ),
-                        shape = RoundedCornerShape(16.dp),
-                        border = if (colors.isDark) androidx.compose.foundation.BorderStroke(1.2.dp, KavachGold.copy(alpha = 0.7f)) else null
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.Shield,
-                            contentDescription = null,
-                            modifier = Modifier.size(24.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "ARM SHIELD",
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
+        // === ARM / DISARM Action (Shown during active states; Tap to Arm is on the ring) ===
+        AnimatedVisibility(
+            visible = shieldState != ShieldState.DISARMED,
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically()
+        ) {
+            when (shieldState) {
                 ShieldState.ARMING -> {
                     val cancelColor = if (colors.isDark) CyberAmber else LightAmber
                     OutlinedButton(
@@ -331,7 +289,7 @@ fun DashboardScreen(
                         shape = RoundedCornerShape(16.dp)
                     ) {
                         Text(
-                            text = "CANCEL",
+                            text = "CANCEL ARMING",
                             style = MaterialTheme.typography.labelLarge,
                             fontWeight = FontWeight.Bold
                         )
@@ -380,6 +338,7 @@ fun DashboardScreen(
                         )
                     }
                 }
+                else -> {}
             }
         }
 
@@ -418,12 +377,13 @@ fun DashboardScreen(
                     colors = colors
                 )
 
-                // Custom timer input
+                // Custom timer input (with Close / Unsee option)
                 if (settings.selectedTimerPreset == TimerPreset.CUSTOM) {
                     Spacer(modifier = Modifier.height(10.dp))
                     CustomTimerInput(
                         currentMinutes = settings.customTimerMinutes,
                         onMinutesChanged = { onSettingsChanged(settings.copy(customTimerMinutes = it)) },
+                        onCloseCustom = { onTimerPresetSelected(TimerPreset.HOUR_2) },
                         colors = colors
                     )
                 }
@@ -496,37 +456,23 @@ fun DashboardScreen(
             }
         }
 
-        // === Feature Toggles (only show when disarmed) ===
-        AnimatedVisibility(
-            visible = shieldState == ShieldState.DISARMED,
-            enter = fadeIn() + expandVertically(),
-            exit = fadeOut() + shrinkVertically()
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                SectionHeader(title = "FEATURES", colors = colors)
-                // Spacer(modifier = Modifier.height(10.dp)) not needed here since verticalArrangement handles it
+        // === Daily Guard Activity Graph (Moved from profile to bottom of home page) ===
+        Spacer(modifier = Modifier.height(10.dp))
+        SectionHeader(title = "DAILY GUARD ACTIVITY (9 AM – 9 PM)", colors = colors)
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = "Hourly breakdown of all 4 Guard Modes active on your device today.",
+            style = MaterialTheme.typography.bodySmall,
+            color = colors.textMuted
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+        DailyGuardUsageGraph(
+            hourlyUsage = hourlyUsage,
+            colors = colors
+        )
 
-                FeatureToggleCard(
-                    title = "Flashlight Strobe",
-                    description = "Flash torch rapidly during alarm",
-                    isEnabled = settings.flashlightEnabled,
-                    onToggle = { onSettingsChanged(settings.copy(flashlightEnabled = it)) },
-                    colors = colors
-                )
-
-                SensitivityCard(
-                    level = settings.sensitivityLevel,
-                    onLevelChange = onSensitivityChanged,
-                    detectionMode = settings.detectionMode,
-                    colors = colors
-                )
-
-                Spacer(modifier = Modifier.height(20.dp))
-            }
-        }
-
-        // Bottom spacing for ad banner
-        Spacer(modifier = Modifier.height(70.dp))
+        // Bottom spacing for bottom navigation bar
+        Spacer(modifier = Modifier.height(90.dp))
     }
 }
 
@@ -649,6 +595,7 @@ private fun DetectionModeSelector(
 private fun CustomTimerInput(
     currentMinutes: Int,
     onMinutesChanged: (Int) -> Unit,
+    onCloseCustom: () -> Unit = {},
     colors: KavachColors
 ) {
     val activeColor = if (colors.isDark) KavachGold else Color(0xFF00758F)
@@ -678,35 +625,54 @@ private fun CustomTimerInput(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = "CUSTOM TIMER",
-                style = MaterialTheme.typography.titleMedium,
-                color = colors.textPrimary,
-                fontWeight = FontWeight.SemiBold
-            )
-
-            // Formatted hours & minutes
-            val hours = currentMinutes / 60
-            val mins = currentMinutes % 60
-            val formatted = when {
-                hours > 0 && mins > 0 -> "${hours} hr ${mins} min"
-                hours > 0 -> if (hours == 1) "1 hour" else "$hours hours"
-                mins == 1 -> "1 minute"
-                else -> "$mins min"
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "CUSTOM TIMER",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = colors.textPrimary,
+                    fontWeight = FontWeight.SemiBold
+                )
             }
 
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(chipBgColor)
-                    .padding(horizontal = 10.dp, vertical = 4.dp)
-            ) {
-                Text(
-                    text = formatted,
-                    style = MaterialTheme.typography.labelLarge,
-                    color = activeColor,
-                    fontWeight = FontWeight.Bold
-                )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                // Formatted hours & minutes
+                val hours = currentMinutes / 60
+                val mins = currentMinutes % 60
+                val formatted = when {
+                    hours > 0 && mins > 0 -> "${hours} hr ${mins} min"
+                    hours > 0 -> if (hours == 1) "1 hour" else "$hours hours"
+                    mins == 1 -> "1 minute"
+                    else -> "$mins min"
+                }
+
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(chipBgColor)
+                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                ) {
+                    Text(
+                        text = formatted,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = activeColor,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(6.dp))
+
+                // Close / Unsee Button
+                IconButton(
+                    onClick = onCloseCustom,
+                    modifier = Modifier.size(30.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Close,
+                        contentDescription = "Close Custom Timer Slider",
+                        tint = colors.textMuted,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
             }
         }
 

@@ -28,31 +28,19 @@ fun TimerPresetRow(
     colors: KavachColors = LocalKavachColors.current,
     modifier: Modifier = Modifier
 ) {
-    Column(modifier = modifier) {
-        // First row: fixed presets
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            TimerPreset.entries.filter { it != TimerPreset.CUSTOM }.forEach { preset ->
-                TimerChip(
-                    preset = preset,
-                    isSelected = preset == selectedPreset,
-                    onClick = { onPresetSelected(preset) },
-                    colors = colors,
-                    modifier = Modifier.weight(1f)
-                )
-            }
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        TimerPreset.entries.forEach { preset ->
+            TimerChip(
+                preset = preset,
+                isSelected = preset == selectedPreset,
+                onClick = { onPresetSelected(preset) },
+                colors = colors,
+                modifier = Modifier.weight(1f)
+            )
         }
-        Spacer(modifier = Modifier.height(8.dp))
-        // Custom option
-        TimerChip(
-            preset = TimerPreset.CUSTOM,
-            isSelected = selectedPreset == TimerPreset.CUSTOM,
-            onClick = { onPresetSelected(TimerPreset.CUSTOM) },
-            colors = colors,
-            modifier = Modifier.fillMaxWidth()
-        )
     }
 }
 

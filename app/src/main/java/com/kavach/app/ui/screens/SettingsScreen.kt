@@ -49,6 +49,7 @@ fun SettingsScreen(
     val activeAccent = if (colors.isDark) KavachGold else Color(0xFF00758F)
 
     // Expandable accordion menu tabs
+    var expandedSensors by remember { mutableStateOf(false) }
     var expandedTimers by remember { mutableStateOf(false) }
     var expandedAppearance by remember { mutableStateOf(false) }
     var expandedAlarm by remember { mutableStateOf(false) }
@@ -98,7 +99,37 @@ fun SettingsScreen(
         )
         Spacer(modifier = Modifier.height(12.dp))
 
-        // 1. TIMERS MENU TAB
+        // 1. SENSOR SENSITIVITY & HARDWARE DEFENSE MENU TAB
+        SettingsMenuHeader(
+            icon = Icons.Outlined.Tune,
+            title = "Sensor Sensitivity & Hardware",
+            subtitle = "Detection sensitivity ${settings.sensitivityLevel}/10 & flashlight strobe",
+            isExpanded = expandedSensors,
+            onToggle = { expandedSensors = !expandedSensors },
+            colors = colors,
+            activeColor = activeAccent
+        )
+        if (expandedSensors) {
+            Spacer(modifier = Modifier.height(8.dp))
+            com.kavach.app.ui.components.SensitivityCard(
+                level = settings.sensitivityLevel,
+                onLevelChange = { onSettingsChanged(settings.copy(sensitivityLevel = it)) },
+                detectionMode = settings.detectionMode,
+                colors = colors
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+            com.kavach.app.ui.components.FeatureToggleCard(
+                title = "Flashlight Strobe",
+                description = "Flash camera torch rapidly during emergency alarm",
+                isEnabled = settings.flashlightEnabled,
+                onToggle = { onSettingsChanged(settings.copy(flashlightEnabled = it)) },
+                colors = colors
+            )
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // 2. TIMERS MENU TAB
         SettingsMenuHeader(
             icon = Icons.Outlined.Timer,
             title = "Timers & Countdowns",

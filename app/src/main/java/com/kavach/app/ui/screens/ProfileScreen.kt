@@ -35,9 +35,8 @@ import com.kavach.app.ui.theme.*
 @Composable
 fun ProfileScreen(
     profile: UserProfile,
-    hourlyUsage: Map<Int, Map<DetectionMode, Int>>,
     onSaveProfile: (UserProfile) -> Unit,
-    onNavigateBack: () -> Unit,
+    onNavigateBack: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val colors = LocalKavachColors.current
@@ -267,30 +266,6 @@ fun ProfileScreen(
             )
         }
 
-        Spacer(modifier = Modifier.height(28.dp))
-
-        // Section: Usage Graph (9 AM to 9 PM)
-        Text(
-            text = "DAILY GUARD ACTIVITY GRAPH (9 AM – 9 PM)",
-            fontFamily = OrbitronFamily,
-            fontWeight = FontWeight.Bold,
-            fontSize = 12.sp,
-            color = colors.textSecondary,
-            letterSpacing = 1.sp
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        Text(
-            text = "Hourly breakdown of all 4 Guard Modes active on your device today.",
-            style = MaterialTheme.typography.bodySmall,
-            color = colors.textMuted
-        )
-        Spacer(modifier = Modifier.height(14.dp))
-
-        DailyGuardUsageGraph(
-            hourlyUsage = hourlyUsage,
-            colors = colors
-        )
-
         Spacer(modifier = Modifier.height(40.dp))
     }
 }
@@ -333,7 +308,7 @@ private fun ProfileTextField(
 }
 
 @Composable
-private fun DailyGuardUsageGraph(
+internal fun DailyGuardUsageGraph(
     hourlyUsage: Map<Int, Map<DetectionMode, Int>>,
     colors: KavachColors
 ) {
@@ -477,3 +452,4 @@ private fun LegendItem(label: String, color: Color) {
         )
     }
 }
+

@@ -73,14 +73,14 @@ class KavachPreferences(private val context: Context) {
      */
     fun getInitialSettings(): KavachSettings {
         val isDark = sharedPrefs.getBoolean(KEY_CACHED_DARK_MODE, true)
-        val vol = sharedPrefs.getInt("alarm_volume_percent", 100).coerceIn(0, 100)
+        val vol = sharedPrefs.getInt("alarm_volume_percent", 0).coerceIn(0, 100)
         val modeStr = sharedPrefs.getString("detection_mode", DetectionMode.MOTION.name) ?: DetectionMode.MOTION.name
         val mode = try { DetectionMode.valueOf(modeStr) } catch (_: Exception) { DetectionMode.MOTION }
         val sens = sharedPrefs.getInt("sensitivity_level", 5)
         val armSecs = sharedPrefs.getInt("arming_countdown_seconds", 5)
         val decoySecs = sharedPrefs.getInt("decoy_countdown_seconds", 5)
         val pack = sharedPrefs.getString("selected_siren_pack_id", "default") ?: "default"
-        val flash = sharedPrefs.getBoolean("flashlight_enabled", true)
+        val flash = sharedPrefs.getBoolean("flashlight_enabled", false)
         val comboStr = sharedPrefs.getString("power_button_combo", PowerButtonCombo.POWER_VOL_UP.name) ?: PowerButtonCombo.POWER_VOL_UP.name
         val combo = try { PowerButtonCombo.valueOf(comboStr) } catch (_: Exception) { PowerButtonCombo.POWER_VOL_UP }
         val nightEnabled = sharedPrefs.getBoolean("night_schedule_enabled", false)
@@ -132,7 +132,7 @@ class KavachPreferences(private val context: Context) {
 
     val settingsFlow: Flow<KavachSettings> = context.dataStore.data.map { prefs ->
         val isDark = prefs[IS_DARK_MODE] ?: sharedPrefs.getBoolean(KEY_CACHED_DARK_MODE, true)
-        val vol = prefs[ALARM_VOLUME_PERCENT] ?: sharedPrefs.getInt("alarm_volume_percent", 100).coerceIn(0, 100)
+        val vol = prefs[ALARM_VOLUME_PERCENT] ?: sharedPrefs.getInt("alarm_volume_percent", 0).coerceIn(0, 100)
         val timeoutMins = prefs[ALARM_TIMEOUT_MINUTES] ?: sharedPrefs.getInt("alarm_timeout_minutes", 0)
         val travelIdleMins = prefs[TRAVEL_IDLE_MINUTES] ?: sharedPrefs.getInt("travel_idle_minutes", 3)
         val comboStr = prefs[POWER_BUTTON_COMBO] ?: sharedPrefs.getString("power_button_combo", PowerButtonCombo.POWER_VOL_UP.name) ?: PowerButtonCombo.POWER_VOL_UP.name
@@ -180,7 +180,7 @@ class KavachPreferences(private val context: Context) {
             selectedSirenPackId = prefs[SELECTED_SIREN_PACK] ?: "default",
             pocketDetectionEnabled = prefs[POCKET_DETECTION] ?: true,
             lightThresholdLux = prefs[LIGHT_THRESHOLD] ?: 8f,
-            flashlightEnabled = prefs[FLASHLIGHT_ENABLED] ?: true,
+            flashlightEnabled = prefs[FLASHLIGHT_ENABLED] ?: false,
             sensitivityLevel = prefs[SENSITIVITY_LEVEL] ?: 5,
             unlockedSirenPacks = prefs[UNLOCKED_SIREN_PACKS] ?: setOf("default", "police", "air_horn", "military", "nuclear", "tornado"),
             detectionMode = try {
@@ -191,7 +191,7 @@ class KavachPreferences(private val context: Context) {
             },
             decoyCountdownSeconds = prefs[DECOY_COUNTDOWN_SECONDS] ?: 5,
             armingCountdownSeconds = prefs[ARMING_COUNTDOWN_SECONDS] ?: 5,
-            alarmVolumePercent = prefs[ALARM_VOLUME_PERCENT] ?: 100,
+            alarmVolumePercent = prefs[ALARM_VOLUME_PERCENT] ?: 0,
             alarmTimeoutMinutes = timeoutMins,
             isDarkMode = isDark,
             travelIdleMinutes = travelIdleMins,

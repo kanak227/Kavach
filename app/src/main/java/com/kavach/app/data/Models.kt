@@ -66,7 +66,6 @@ enum class TimerPreset(val label: String, val minutes: Int) {
     MIN_30("30 MIN", 30),
     HOUR_1("1 HOUR", 60),
     HOUR_2("2 HOURS", 120),
-    HOUR_4("4 HOURS", 240),
     CUSTOM("CUSTOM", -1)
 }
 
@@ -126,13 +125,13 @@ data class KavachSettings(
     val selectedSirenPackId: String = "default",
     val pocketDetectionEnabled: Boolean = true,
     val lightThresholdLux: Float = 8f,
-    val flashlightEnabled: Boolean = true,
-    val sensitivityLevel: Int = 5,  // 1-10 scale
+    val flashlightEnabled: Boolean = false, // By default OFF as requested
+    val sensitivityLevel: Int = 5,  // 1-10 scale (default 5)
     val unlockedSirenPacks: Set<String> = setOf("system_alarm", "default", "police", "air_horn", "military", "nuclear", "tornado"),
     val detectionMode: DetectionMode = DetectionMode.DESK,
     val decoyCountdownSeconds: Int = 5,  // User-configurable decoy timer (3-30s)
     val armingCountdownSeconds: Int = 5, // User-configurable arming countdown (3-15s)
-    val alarmVolumePercent: Int = 100,   // Alarm sound volume level (5% - 100%)
+    val alarmVolumePercent: Int = 0,     // Default 0 percent volume as requested
     val alarmTimeoutMinutes: Int = 0,    // 0 = Endless / Until Disarmed (default), 1 to 60 minutes
     val isDarkMode: Boolean = true,      // Dark mode by default
     val travelIdleMinutes: Int = 3,      // Configurable minutes of inactivity before Desk Guard activates in Travel Mode
