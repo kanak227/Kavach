@@ -63,7 +63,7 @@ class NightScheduleReceiver : BroadcastReceiver() {
                     context = context,
                     durationMinutes = remainingMinutes.coerceAtLeast(1),
                     armingCountdownSeconds = 5,
-                    detectionMode = mode,
+                    detectionMode = DetectionMode.SLEEP,
                     sensitivity = sensitivity,
                     alarmVolumePercent = volumePercent,
                     skipCountdown = false

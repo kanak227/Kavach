@@ -592,8 +592,12 @@ class MainActivity : FragmentActivity() {
                                         composable("profile") {
                                             com.kavach.app.ui.screens.ProfileScreen(
                                                 profile = userProfile,
+                                                settings = settings,
                                                 onSaveProfile = { updated ->
                                                     viewModel.saveUserProfile(updated)
+                                                },
+                                                onSettingsChanged = { updatedSettings ->
+                                                    viewModel.updateSettings(updatedSettings)
                                                 },
                                                 onNavigateBack = { navController.popBackStack() }
                                             )

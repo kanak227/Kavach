@@ -17,7 +17,8 @@ data class UserProfile(
     val emergencyContactPhone: String = "",
     val bloodGroup: String = "",
     val homeAddress: String = "",
-    val notes: String = ""
+    val notes: String = "",
+    val profilePicturePath: String = ""
 )
 
 data class GuardUsageSample(
@@ -39,6 +40,7 @@ class UserProfileRepository(private val context: Context) {
         val KEY_BLOOD_GROUP = stringPreferencesKey("profile_blood_group")
         val KEY_ADDRESS = stringPreferencesKey("profile_address")
         val KEY_NOTES = stringPreferencesKey("profile_notes")
+        val KEY_PICTURE_PATH = stringPreferencesKey("profile_picture_path")
     }
 
     fun getInitialProfile(): UserProfile {
@@ -50,7 +52,8 @@ class UserProfileRepository(private val context: Context) {
             emergencyContactPhone = sharedPrefs.getString("emergency_phone", "") ?: "",
             bloodGroup = sharedPrefs.getString("blood_group", "") ?: "",
             homeAddress = sharedPrefs.getString("address", "") ?: "",
-            notes = sharedPrefs.getString("notes", "") ?: ""
+            notes = sharedPrefs.getString("notes", "") ?: "",
+            profilePicturePath = sharedPrefs.getString("profile_picture_path", "") ?: ""
         )
     }
 
@@ -63,7 +66,8 @@ class UserProfileRepository(private val context: Context) {
             emergencyContactPhone = prefs[KEY_EMERGENCY_PHONE] ?: sharedPrefs.getString("emergency_phone", "") ?: "",
             bloodGroup = prefs[KEY_BLOOD_GROUP] ?: sharedPrefs.getString("blood_group", "") ?: "",
             homeAddress = prefs[KEY_ADDRESS] ?: sharedPrefs.getString("address", "") ?: "",
-            notes = prefs[KEY_NOTES] ?: sharedPrefs.getString("notes", "") ?: ""
+            notes = prefs[KEY_NOTES] ?: sharedPrefs.getString("notes", "") ?: "",
+            profilePicturePath = prefs[KEY_PICTURE_PATH] ?: sharedPrefs.getString("profile_picture_path", "") ?: ""
         )
     }
 
@@ -77,6 +81,7 @@ class UserProfileRepository(private val context: Context) {
             .putString("blood_group", profile.bloodGroup)
             .putString("address", profile.homeAddress)
             .putString("notes", profile.notes)
+            .putString("profile_picture_path", profile.profilePicturePath)
             .apply()
 
         context.userProfileDataStore.edit { prefs ->
@@ -88,6 +93,7 @@ class UserProfileRepository(private val context: Context) {
             prefs[KEY_BLOOD_GROUP] = profile.bloodGroup
             prefs[KEY_ADDRESS] = profile.homeAddress
             prefs[KEY_NOTES] = profile.notes
+            prefs[KEY_PICTURE_PATH] = profile.profilePicturePath
         }
     }
 

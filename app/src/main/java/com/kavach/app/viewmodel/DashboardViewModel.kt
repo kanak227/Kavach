@@ -235,7 +235,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
      * Synchronously commits shield_was_armed = true to disk in 0ms, starts
      * KavachForegroundService, and lets the 5s countdown & sensors run inside the service.
      */
-    fun armShieldWithDuration(minutes: Int, isNightAutoArm: Boolean = false) {
+    fun armShieldWithDuration(minutes: Int, isNightAutoArm: Boolean = false, overrideMode: DetectionMode? = null) {
         val app = getApplication<Application>()
         val s = settings.value
         val armingSeconds = s.armingCountdownSeconds
@@ -260,12 +260,14 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
             _isNightGuardDismissedForTonight.value = false
         }
 
+        val modeToUse = overrideMode ?: if (isNightAutoArm) DetectionMode.SLEEP else s.detectionMode
+
         KavachForegroundService.arm(
             context = app,
             durationMinutes = minutes,
             armingCountdownSeconds = armingSeconds,
             authCountdownSeconds = authSeconds,
-            detectionMode = s.detectionMode,
+            detectionMode = modeToUse,
             sensitivity = s.sensitivityLevel,
             alarmVolumePercent = s.alarmVolumePercent,
             skipCountdown = false

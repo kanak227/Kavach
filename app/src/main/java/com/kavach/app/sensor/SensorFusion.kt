@@ -271,6 +271,17 @@ class SensorFusion(context: Context) : SensorEventListener {
                 normalY = baselineY / baselineG
                 normalZ = baselineZ / baselineG
                 consecutiveVerticalSamples = 0
+
+        travelDeskBaselineSet = false
+        travelDeskCalibrationSamples = 0
+        travelBaselineX = 0f
+        travelBaselineY = 0f
+        travelBaselineZ = 0f
+        travelBaselineG = 9.81f
+        travelNormalX = 0f
+        travelNormalY = 0f
+        travelNormalZ = 1f
+        travelConsecutiveVerticalSamples = 0
                 baselineSet = true
             }
             return
@@ -302,6 +313,17 @@ class SensorFusion(context: Context) : SensorEventListener {
             }
         } else {
             consecutiveVerticalSamples = 0
+
+        travelDeskBaselineSet = false
+        travelDeskCalibrationSamples = 0
+        travelBaselineX = 0f
+        travelBaselineY = 0f
+        travelBaselineZ = 0f
+        travelBaselineG = 9.81f
+        travelNormalX = 0f
+        travelNormalY = 0f
+        travelNormalZ = 1f
+        travelConsecutiveVerticalSamples = 0
         }
     }
 
@@ -323,6 +345,17 @@ class SensorFusion(context: Context) : SensorEventListener {
                 normalY = baselineY / baselineG
                 normalZ = baselineZ / baselineG
                 consecutiveVerticalSamples = 0
+
+        travelDeskBaselineSet = false
+        travelDeskCalibrationSamples = 0
+        travelBaselineX = 0f
+        travelBaselineY = 0f
+        travelBaselineZ = 0f
+        travelBaselineG = 9.81f
+        travelNormalX = 0f
+        travelNormalY = 0f
+        travelNormalZ = 1f
+        travelConsecutiveVerticalSamples = 0
                 baselineSet = true
             }
             return
@@ -352,6 +385,17 @@ class SensorFusion(context: Context) : SensorEventListener {
             }
         } else {
             consecutiveVerticalSamples = 0
+
+        travelDeskBaselineSet = false
+        travelDeskCalibrationSamples = 0
+        travelBaselineX = 0f
+        travelBaselineY = 0f
+        travelBaselineZ = 0f
+        travelBaselineG = 9.81f
+        travelNormalX = 0f
+        travelNormalY = 0f
+        travelNormalZ = 1f
+        travelConsecutiveVerticalSamples = 0
         }
     }
 

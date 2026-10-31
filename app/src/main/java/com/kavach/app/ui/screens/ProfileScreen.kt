@@ -13,11 +13,34 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.*
+import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.ZoomIn
+import androidx.compose.material.icons.outlined.Bedtime
+import androidx.compose.material.icons.outlined.AccessTime
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.FileProvider
+import android.net.Uri
+import android.graphics.BitmapFactory
+import android.app.TimePickerDialog
+import com.kavach.app.data.KavachSettings
+import com.kavach.app.data.NightSchedule
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -35,7 +58,9 @@ import com.kavach.app.ui.theme.*
 @Composable
 fun ProfileScreen(
     profile: UserProfile,
+    settings: KavachSettings = KavachSettings(),
     onSaveProfile: (UserProfile) -> Unit,
+    onSettingsChanged: (KavachSettings) -> Unit = {},
     onNavigateBack: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -50,8 +75,148 @@ fun ProfileScreen(
     var bloodGroup by remember(profile.bloodGroup) { mutableStateOf(profile.bloodGroup) }
     var address by remember(profile.homeAddress) { mutableStateOf(profile.homeAddress) }
     var notes by remember(profile.notes) { mutableStateOf(profile.notes) }
+    var profilePicturePath by remember(profile.profilePicturePath) { mutableStateOf(profile.profilePicturePath) }
 
     var isSavedSnackbarVisible by remember { mutableStateOf(false) }
+    var showPhotoOptionsDialog by remember { mutableStateOf(false) }
+    var showZoomOverlay by remember { mutableStateOf(false) }
+    var avatarBitmapKey by remember { mutableLongStateOf(System.currentTimeMillis()) }
+
+    val context = LocalContext.current
+    val avatarFile = remember { java.io.File(context.filesDir, "profile_avatar.jpg") }
+    val tempCameraFile = remember { java.io.File(context.cacheDir, "temp_camera_photo.jpg") }
+
+    val avatarBitmap = remember(profilePicturePath, avatarBitmapKey) {
+        if (profilePicturePath.isNotBlank()) {
+            try {
+                val f = java.io.File(profilePicturePath)
+                if (f.exists()) {
+                    BitmapFactory.decodeFile(f.absolutePath)?.asImageBitmap()
+                } else null
+            } catch (_: Exception) { null }
+        } else null
+    }
+
+    val takePictureLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicture()
+    ) { success ->
+        if (success && tempCameraFile.exists()) {
+            try {
+                tempCameraFile.copyTo(avatarFile, overwrite = true)
+                tempCameraFile.delete()
+                profilePicturePath = avatarFile.absolutePath
+                avatarBitmapKey = System.currentTimeMillis()
+                onSaveProfile(
+                    profile.copy(
+                        fullName = fullName,
+                        email = email,
+                        phoneNumber = phone,
+                        emergencyContactName = emergencyName,
+                        emergencyContactPhone = emergencyPhone,
+                        bloodGroup = bloodGroup,
+                        homeAddress = address,
+                        notes = notes,
+                        profilePicturePath = avatarFile.absolutePath
+                    )
+                )
+            } catch (_: Exception) {}
+        }
+    }
+
+    val pickGalleryLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            try {
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    avatarFile.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                }
+                profilePicturePath = avatarFile.absolutePath
+                avatarBitmapKey = System.currentTimeMillis()
+                onSaveProfile(
+                    profile.copy(
+                        fullName = fullName,
+                        email = email,
+                        phoneNumber = phone,
+                        emergencyContactName = emergencyName,
+                        emergencyContactPhone = emergencyPhone,
+                        bloodGroup = bloodGroup,
+                        homeAddress = address,
+                        notes = notes,
+                        profilePicturePath = avatarFile.absolutePath
+                    )
+                )
+            } catch (_: Exception) {}
+        }
+    }
+
+    val cameraPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            try {
+                val uri = FileProvider.getUriForFile(
+                    context,
+                    "${context.packageName}.fileprovider",
+                    tempCameraFile
+                )
+                takePictureLauncher.launch(uri)
+            } catch (_: Exception) {}
+        }
+    }
+
+    fun launchCamera() {
+        val hasCam = androidx.core.content.ContextCompat.checkSelfPermission(
+            context,
+            android.Manifest.permission.CAMERA
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+        if (hasCam) {
+            try {
+                val uri = FileProvider.getUriForFile(
+                    context,
+                    "${context.packageName}.fileprovider",
+                    tempCameraFile
+                )
+                takePictureLauncher.launch(uri)
+            } catch (_: Exception) {}
+        } else {
+            cameraPermissionLauncher.launch(android.Manifest.permission.CAMERA)
+        }
+    }
+
+    fun removePhoto() {
+        try {
+            if (avatarFile.exists()) avatarFile.delete()
+        } catch (_: Exception) {}
+        profilePicturePath = ""
+        avatarBitmapKey = System.currentTimeMillis()
+        onSaveProfile(
+            profile.copy(
+                fullName = fullName,
+                email = email,
+                phoneNumber = phone,
+                emergencyContactName = emergencyName,
+                emergencyContactPhone = emergencyPhone,
+                bloodGroup = bloodGroup,
+                homeAddress = address,
+                notes = notes,
+                profilePicturePath = ""
+            )
+        )
+    }
+
+    fun formatScheduleTime(hour: Int, minute: Int): String {
+        val amPm = if (hour >= 12) "PM" else "AM"
+        val h = when {
+            hour == 0 -> 12
+            hour > 12 -> hour - 12
+            else -> hour
+        }
+        return String.format("%02d:%02d %s", h, minute, amPm)
+    }
 
     val activeAccent = if (colors.isDark) KavachGold else Color(0xFF00758F)
 
@@ -88,7 +253,7 @@ fun ProfileScreen(
 
         Spacer(modifier = Modifier.height(20.dp))
 
-        // Profile Avatar Card
+        // Profile Avatar Card with Interactive Camera & Zoom
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -101,20 +266,58 @@ fun ProfileScreen(
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Box(
                     modifier = Modifier
-                        .size(72.dp)
-                        .clip(CircleShape)
-                        .background(activeAccent.copy(alpha = 0.15f))
-                        .border(1.5.dp, activeAccent, CircleShape),
+                        .size(92.dp)
+                        .clickable { showPhotoOptionsDialog = true },
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Person,
-                        contentDescription = null,
-                        tint = activeAccent,
-                        modifier = Modifier.size(40.dp)
-                    )
+                    // Circular Avatar Image or Fallback Icon
+                    Box(
+                        modifier = Modifier
+                            .size(86.dp)
+                            .clip(CircleShape)
+                            .background(activeAccent.copy(alpha = 0.15f))
+                            .border(2.dp, activeAccent, CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (avatarBitmap != null) {
+                            Image(
+                                bitmap = avatarBitmap,
+                                contentDescription = "Profile Photo",
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .clip(CircleShape)
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Outlined.Person,
+                                contentDescription = null,
+                                tint = activeAccent,
+                                modifier = Modifier.size(48.dp)
+                            )
+                        }
+                    }
+
+                    // Camera Badge on bottom-right of avatar
+                    Box(
+                        modifier = Modifier
+                            .size(28.dp)
+                            .align(Alignment.BottomEnd)
+                            .clip(CircleShape)
+                            .background(if (colors.isDark) KavachGold else CyberCyan)
+                            .border(2.dp, colors.card, CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.CameraAlt,
+                            contentDescription = "Camera Options",
+                            tint = Color.Black,
+                            modifier = Modifier.size(15.dp)
+                        )
+                    }
                 }
-                Spacer(modifier = Modifier.height(10.dp))
+
+                Spacer(modifier = Modifier.height(12.dp))
                 Text(
                     text = if (fullName.isNotBlank()) fullName else "Device Owner",
                     fontFamily = OrbitronFamily,
@@ -231,7 +434,8 @@ fun ProfileScreen(
                         emergencyContactPhone = emergencyPhone,
                         bloodGroup = bloodGroup,
                         homeAddress = address,
-                        notes = notes
+                        notes = notes,
+                        profilePicturePath = profilePicturePath
                     )
                 )
                 isSavedSnackbarVisible = true
@@ -266,7 +470,438 @@ fun ProfileScreen(
             )
         }
 
+        Spacer(modifier = Modifier.height(28.dp))
+
+        // Section: Automatic Sleep Guard Schedule
+        Text(
+            text = "AUTOMATIC SLEEP GUARD SCHEDULE",
+            fontFamily = OrbitronFamily,
+            fontWeight = FontWeight.Bold,
+            fontSize = 12.sp,
+            color = if (colors.isDark) KavachGold else CyberCyan
+        )
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(16.dp))
+                .border(1.dp, colors.cardBorder, RoundedCornerShape(16.dp)),
+            colors = CardDefaults.cardColors(containerColor = colors.card)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                // Header Row with Switch
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFFA855F7).copy(alpha = 0.15f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Bedtime,
+                                contentDescription = null,
+                                tint = Color(0xFFA855F7),
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                text = "Auto Sleep Mode",
+                                fontFamily = OrbitronFamily,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp,
+                                color = colors.textPrimary
+                            )
+                            Text(
+                                text = if (settings.nightSchedule.enabled) "Active from ${formatScheduleTime(settings.nightSchedule.startHour, settings.nightSchedule.startMinute)} to ${formatScheduleTime(settings.nightSchedule.endHour, settings.nightSchedule.endMinute)}" else "Disabled",
+                                fontSize = 11.5.sp,
+                                color = colors.textSecondary
+                            )
+                        }
+                    }
+
+                    Switch(
+                        checked = settings.nightSchedule.enabled,
+                        onCheckedChange = { isEnabled ->
+                            onSettingsChanged(
+                                settings.copy(
+                                    nightSchedule = settings.nightSchedule.copy(enabled = isEnabled)
+                                )
+                            )
+                        },
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = Color.Black,
+                            checkedTrackColor = Color(0xFFA855F7)
+                        )
+                    )
+                }
+
+                if (settings.nightSchedule.enabled) {
+                    Spacer(modifier = Modifier.height(14.dp))
+                    HorizontalDivider(color = colors.cardBorder.copy(alpha = 0.5f))
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Start Time (X Time) & End Time (Y Time) Picker Selectors
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        // Start Time Selector
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(colors.background.copy(alpha = 0.6f))
+                                .border(1.dp, colors.cardBorder, RoundedCornerShape(12.dp))
+                                .clickable {
+                                    TimePickerDialog(
+                                        context,
+                                        { _, hour, minute ->
+                                            onSettingsChanged(
+                                                settings.copy(
+                                                    nightSchedule = settings.nightSchedule.copy(
+                                                        startHour = hour,
+                                                        startMinute = minute
+                                                    )
+                                                )
+                                            )
+                                        },
+                                        settings.nightSchedule.startHour,
+                                        settings.nightSchedule.startMinute,
+                                        false
+                                    ).show()
+                                }
+                                .padding(12.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = "START TIME (X)",
+                                fontSize = 10.sp,
+                                color = colors.textMuted,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = OrbitronFamily
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Outlined.AccessTime, contentDescription = null, tint = Color(0xFFA855F7), modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = formatScheduleTime(settings.nightSchedule.startHour, settings.nightSchedule.startMinute),
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = colors.textPrimary,
+                                    fontFamily = RajdhaniFamily
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.width(12.dp))
+
+                        // End Time Selector
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(colors.background.copy(alpha = 0.6f))
+                                .border(1.dp, colors.cardBorder, RoundedCornerShape(12.dp))
+                                .clickable {
+                                    TimePickerDialog(
+                                        context,
+                                        { _, hour, minute ->
+                                            onSettingsChanged(
+                                                settings.copy(
+                                                    nightSchedule = settings.nightSchedule.copy(
+                                                        endHour = hour,
+                                                        endMinute = minute
+                                                    )
+                                                )
+                                            )
+                                        },
+                                        settings.nightSchedule.endHour,
+                                        settings.nightSchedule.endMinute,
+                                        false
+                                    ).show()
+                                }
+                                .padding(12.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = "END TIME (Y)",
+                                fontSize = 10.sp,
+                                color = colors.textMuted,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = OrbitronFamily
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Outlined.AccessTime, contentDescription = null, tint = Color(0xFFA855F7), modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = formatScheduleTime(settings.nightSchedule.endHour, settings.nightSchedule.endMinute),
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = colors.textPrimary,
+                                    fontFamily = RajdhaniFamily
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    Text(
+                        text = "🌙 At the start time, Kavach automatically arms in Sleep Mode with nocturnal bed-bounce filtering. At the end time, it automatically disarms.",
+                        fontSize = 11.5.sp,
+                        color = colors.textMuted,
+                        lineHeight = 16.sp
+                    )
+                }
+            }
+        }
+
         Spacer(modifier = Modifier.height(40.dp))
+    }
+
+    // Photo Action Dialog (Camera vs Gallery vs View vs Remove)
+    if (showPhotoOptionsDialog) {
+        AlertDialog(
+            onDismissRequest = { showPhotoOptionsDialog = false },
+            containerColor = colors.card,
+            title = {
+                Text(
+                    text = "PROFILE PHOTO",
+                    fontFamily = OrbitronFamily,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp,
+                    color = colors.textPrimary
+                )
+            },
+            text = {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    if (avatarBitmap != null) {
+                        TextButton(
+                            onClick = {
+                                showPhotoOptionsDialog = false
+                                showZoomOverlay = true
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Filled.ZoomIn, contentDescription = null, tint = activeAccent)
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text("Zoom & View Full Photo", color = colors.textPrimary, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    TextButton(
+                        onClick = {
+                            showPhotoOptionsDialog = false
+                            launchCamera()
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Filled.CameraAlt, contentDescription = null, tint = activeAccent)
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(if (avatarBitmap != null) "Take New Photo (Camera)" else "Take Photo (Camera)", color = colors.textPrimary, fontWeight = FontWeight.Bold)
+                    }
+
+                    TextButton(
+                        onClick = {
+                            showPhotoOptionsDialog = false
+                            pickGalleryLauncher.launch("image/*")
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Outlined.Photo, contentDescription = null, tint = activeAccent)
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text("Choose from Gallery", color = colors.textPrimary, fontWeight = FontWeight.Bold)
+                    }
+
+                    if (avatarBitmap != null) {
+                        TextButton(
+                            onClick = {
+                                showPhotoOptionsDialog = false
+                                removePhoto()
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Outlined.Delete, contentDescription = null, tint = CyberRed)
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text("Remove Photo", color = CyberRed, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showPhotoOptionsDialog = false }) {
+                    Text("CANCEL", color = colors.textMuted)
+                }
+            }
+        )
+    }
+
+    // Interactive Fullscreen Zoom Overlay
+    if (showZoomOverlay && avatarBitmap != null) {
+        Dialog(
+            onDismissRequest = { showZoomOverlay = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            var scale by remember { mutableFloatStateOf(1f) }
+            var offset by remember { mutableStateOf(Offset.Zero) }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.95f))
+                    .systemBarsPadding()
+            ) {
+                // Top Action Bar
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp)
+                        .align(Alignment.TopCenter),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(
+                        onClick = { showZoomOverlay = false },
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(Color.White.copy(alpha = 0.15f))
+                    ) {
+                        Icon(Icons.Outlined.Close, contentDescription = "Close", tint = Color.White)
+                    }
+
+                    Text(
+                        text = "PROFILE PHOTO",
+                        fontFamily = OrbitronFamily,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp,
+                        color = Color.White
+                    )
+
+                    if (scale > 1.05f) {
+                        TextButton(
+                            onClick = {
+                                scale = 1f
+                                offset = Offset.Zero
+                            }
+                        ) {
+                            Text("RESET", color = if (colors.isDark) KavachGold else CyberCyan, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
+                    } else {
+                        Spacer(modifier = Modifier.width(40.dp))
+                    }
+                }
+
+                // Center Zoomable Image Viewport
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(vertical = 80.dp)
+                        .clipToBounds()
+                        .pointerInput(Unit) {
+                            detectTransformGestures { _, pan, zoom, _ ->
+                                scale = (scale * zoom).coerceIn(1f, 5f)
+                                if (scale > 1f) {
+                                    offset += pan
+                                } else {
+                                    offset = Offset.Zero
+                                }
+                            }
+                        }
+                        .pointerInput(Unit) {
+                            detectTapGestures(
+                                onDoubleTap = {
+                                    if (scale > 1.2f) {
+                                        scale = 1f
+                                        offset = Offset.Zero
+                                    } else {
+                                        scale = 2.5f
+                                    }
+                                }
+                            )
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Image(
+                        bitmap = avatarBitmap,
+                        contentDescription = "Zoomed Profile Photo",
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer(
+                                scaleX = scale,
+                                scaleY = scale,
+                                translationX = offset.x,
+                                translationY = offset.y
+                            )
+                    )
+                }
+
+                // Bottom Hint & Actions
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 20.dp, start = 16.dp, end = 16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = "Pinch to zoom • Double-tap to toggle 2.5x",
+                        fontSize = 12.sp,
+                        color = Color.Gray,
+                        fontFamily = RajdhaniFamily,
+                        fontWeight = FontWeight.Medium
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Button(
+                            onClick = {
+                                showZoomOverlay = false
+                                launchCamera()
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = activeAccent),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Icon(Icons.Filled.CameraAlt, contentDescription = null, tint = Color.Black, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Camera", color = Color.Black, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
+
+                        Spacer(modifier = Modifier.width(12.dp))
+
+                        OutlinedButton(
+                            onClick = {
+                                showZoomOverlay = false
+                                pickGalleryLauncher.launch("image/*")
+                            },
+                            shape = RoundedCornerShape(10.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.4f))
+                        ) {
+                            Icon(Icons.Outlined.Photo, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Gallery", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
