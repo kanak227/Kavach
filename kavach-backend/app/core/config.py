@@ -24,6 +24,10 @@ class Settings(BaseSettings):
     # CORS
     ALLOWED_ORIGINS: List[str] = ["*"]
 
+    # Google Gemini AI Forensics
+    GEMINI_API_KEY: Union[str, None] = None
+    GEMINI_MODEL: str = "gemini-1.5-flash"
+
     model_config = SettingsConfigDict(
         env_file=str(ENV_PATH),
         env_file_encoding="utf-8",

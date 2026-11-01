@@ -55,6 +55,12 @@ High-performance, asynchronous anti-theft security backend for **Kavach — Smar
 | `POST` | `/api/v1/behavior/{uuid}/recalculate` | Trigger Tiger Data spatial clustering to learn safe zones | Yes (Bearer) |
 | `GET` | `/api/v1/behavior/{uuid}/anomalies` | Audit log of flagged anomalies and security actions | Yes (Bearer) |
 
+### ✨ Google Gemini 1.5 AI Forensics
+| Method | Endpoint | Description | Auth Required |
+| :--- | :--- | :--- | :---: |
+| `POST` | `/api/v1/ai/analyze-incident` | Generate Gemini 1.5 Forensic Assessment & Police Draft | No |
+| `POST` | `/api/v1/ai/ask-copilot` | Natural language conversational Security Copilot | No |
+
 ### 🐅 Time-Series Telemetry (Tiger Data Hypertables)
 | Method | Endpoint | Description | Auth Required |
 | :--- | :--- | :--- | :---: |

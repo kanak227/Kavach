@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.api.ai import router as ai_router
 from app.api.auth import router as auth_router
 from app.api.behavior import router as behavior_router
 from app.api.devices import router as devices_router
@@ -45,6 +46,7 @@ app = FastAPI(
         "- 🔐 **JWT Authentication & bcrypt security**\n"
         "- 🐅 **Tiger Data (TimescaleDB) Telemetry & Behavior Ingestion** with 90%+ compression\n"
         "- 🧠 **Adaptive Behavioral Routine Engine** (Autonomous Safe-Zone discovery & anomaly scoring)\n"
+        "- ✨ **Google Gemini 1.5 AI Forensics** (Automated theft diagnosis, police draft & recovery playbook)\n"
         "- 📱 **Device Pairing & Remote Command Dispatch** (ALARM_ON, LOCATE_NOW, LOCK_DEVICE)\n"
         "- 🌊 **Time-bucketed GPS Route Reconstruction** for recovery pursuit\n"
         "- ☁️ **DigitalOcean Production Ready**"
@@ -68,6 +70,7 @@ app.include_router(auth_router, prefix="/api/v1")
 app.include_router(devices_router, prefix="/api/v1")
 app.include_router(telemetry_router, prefix="/api/v1")
 app.include_router(behavior_router, prefix="/api/v1")
+app.include_router(ai_router, prefix="/api/v1")
 
 
 @app.get("/", tags=["Health Check"])

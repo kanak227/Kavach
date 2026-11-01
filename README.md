@@ -93,3 +93,4 @@ uvicorn app.main:app --reload --port 8000
 
 ## 📄 License
 Developed for the hackathon by **Kanak Verma ([@kanak227](https://github.com/kanak227))**.
+
