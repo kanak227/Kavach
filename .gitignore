@@ -67,3 +67,13 @@ test_copy*.py
 polish_*.py
 update_build.py
 mathjax.js
+
+# Python & Backend Secrets
+__pycache__/
+*.py[cod]
+*$py.class
+*.env
+.env
+.venv/
+venv/
+*.sqlite3
