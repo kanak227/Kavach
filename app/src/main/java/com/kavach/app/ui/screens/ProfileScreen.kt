@@ -1117,7 +1117,7 @@ internal fun DailyGuardUsageGraph(
                     .height(160.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Y-Axis Column (60m, 30m, 0m)
+                // Y-Axis Column (60m, 45m, 30m, 15m, 0m)
                 Column(
                     modifier = Modifier
                         .fillMaxHeight()
@@ -1126,9 +1126,11 @@ internal fun DailyGuardUsageGraph(
                     verticalArrangement = Arrangement.SpaceBetween,
                     horizontalAlignment = Alignment.End
                 ) {
-                    Text("60m", fontSize = 9.sp, color = colors.textMuted, fontFamily = RajdhaniFamily, fontWeight = FontWeight.Bold)
-                    Text("30m", fontSize = 9.sp, color = colors.textMuted, fontFamily = RajdhaniFamily, fontWeight = FontWeight.Bold)
-                    Text("0m", fontSize = 9.sp, color = colors.textMuted, fontFamily = RajdhaniFamily, fontWeight = FontWeight.Bold)
+                    Text("60m", fontSize = 8.5.sp, color = colors.textMuted, fontFamily = RajdhaniFamily, fontWeight = FontWeight.Bold)
+                    Text("45m", fontSize = 8.5.sp, color = colors.textMuted, fontFamily = RajdhaniFamily, fontWeight = FontWeight.Bold)
+                    Text("30m", fontSize = 8.5.sp, color = colors.textMuted, fontFamily = RajdhaniFamily, fontWeight = FontWeight.Bold)
+                    Text("15m", fontSize = 8.5.sp, color = colors.textMuted, fontFamily = RajdhaniFamily, fontWeight = FontWeight.Bold)
+                    Text("0m", fontSize = 8.5.sp, color = colors.textMuted, fontFamily = RajdhaniFamily, fontWeight = FontWeight.Bold)
                 }
 
                 Spacer(modifier = Modifier.width(6.dp))
@@ -1151,11 +1153,27 @@ internal fun DailyGuardUsageGraph(
                         strokeWidth = 1f
                     )
 
+                    // Draw 45m guide line
+                    drawLine(
+                        color = Color.Gray.copy(alpha = 0.08f),
+                        start = Offset(0f, h * 0.25f),
+                        end = Offset(w, h * 0.25f),
+                        strokeWidth = 1f
+                    )
+
                     // Draw 30m mid guide line
                     drawLine(
                         color = Color.Gray.copy(alpha = 0.15f),
-                        start = Offset(0f, h / 2),
-                        end = Offset(w, h / 2),
+                        start = Offset(0f, h * 0.5f),
+                        end = Offset(w, h * 0.5f),
+                        strokeWidth = 1f
+                    )
+
+                    // Draw 15m guide line
+                    drawLine(
+                        color = Color.Gray.copy(alpha = 0.08f),
+                        start = Offset(0f, h * 0.75f),
+                        end = Offset(w, h * 0.75f),
                         strokeWidth = 1f
                     )
 

@@ -128,7 +128,7 @@ data class KavachSettings(
     val flashlightEnabled: Boolean = false, // By default OFF as requested
     val sensitivityLevel: Int = 5,  // 1-10 scale (default 5)
     val unlockedSirenPacks: Set<String> = setOf("system_alarm", "default", "police", "air_horn", "military", "nuclear", "tornado"),
-    val detectionMode: DetectionMode = DetectionMode.DESK,
+    val detectionMode: DetectionMode = DetectionMode.TRAVEL,
     val decoyCountdownSeconds: Int = 5,  // User-configurable decoy timer (3-30s)
     val armingCountdownSeconds: Int = 5, // User-configurable arming countdown (3-15s)
     val alarmVolumePercent: Int = 0,     // Default 0 percent volume as requested

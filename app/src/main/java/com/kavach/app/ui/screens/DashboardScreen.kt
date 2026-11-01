@@ -74,12 +74,16 @@ fun DashboardScreen(
     val colors = LocalKavachColors.current
     val context = LocalContext.current
 
-    val remainingTime = remember(remainingSeconds) {
-        val hours = remainingSeconds / 3600
-        val minutes = (remainingSeconds % 3600) / 60
-        val seconds = remainingSeconds % 60
-        if (hours > 0) String.format("%02d:%02d:%02d", hours, minutes, seconds)
-        else String.format("%02d:%02d", minutes, seconds)
+    val remainingTime = remember(remainingSeconds, settings.detectionMode) {
+        if (remainingSeconds < 0 || settings.detectionMode == DetectionMode.TRAVEL) {
+            "24×7 ACTIVE"
+        } else {
+            val hours = remainingSeconds / 3600
+            val minutes = (remainingSeconds % 3600) / 60
+            val seconds = remainingSeconds % 60
+            if (hours > 0) String.format("%02d:%02d:%02d", hours, minutes, seconds)
+            else String.format("%02d:%02d", minutes, seconds)
+        }
     }
 
     val countdownValue = when (shieldState) {

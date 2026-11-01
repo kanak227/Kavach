@@ -74,8 +74,8 @@ class KavachPreferences(private val context: Context) {
     fun getInitialSettings(): KavachSettings {
         val isDark = sharedPrefs.getBoolean(KEY_CACHED_DARK_MODE, true)
         val vol = sharedPrefs.getInt("alarm_volume_percent", 0).coerceIn(0, 100)
-        val modeStr = sharedPrefs.getString("detection_mode", DetectionMode.MOTION.name) ?: DetectionMode.MOTION.name
-        val mode = try { DetectionMode.valueOf(modeStr) } catch (_: Exception) { DetectionMode.MOTION }
+        val modeStr = sharedPrefs.getString("detection_mode", DetectionMode.TRAVEL.name) ?: DetectionMode.TRAVEL.name
+        val mode = try { DetectionMode.valueOf(modeStr) } catch (_: Exception) { DetectionMode.TRAVEL }
         val sens = sharedPrefs.getInt("sensitivity_level", 5)
         val armSecs = sharedPrefs.getInt("arming_countdown_seconds", 5)
         val decoySecs = sharedPrefs.getInt("decoy_countdown_seconds", 5)

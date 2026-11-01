@@ -422,25 +422,57 @@ class KavachForegroundService : Service() {
         // Timer duration countdown
         timerJob?.cancel()
         timerJob = serviceScope.launch {
-            var remaining = durationMinutes * 60L
-            _serviceRemainingSeconds.value = remaining
-
-            while (isActive && remaining > 0 && _serviceShieldState.value != ShieldState.DISARMED) {
-                delay(1000)
-                remaining--
-                _serviceRemainingSeconds.value = remaining
-                if (_serviceShieldState.value == ShieldState.ARMED) {
-                    try {
-                        val cal = java.util.Calendar.getInstance()
-                        val hour = cal.get(java.util.Calendar.HOUR_OF_DAY)
-                        UserProfileRepository(applicationContext).recordModeUsageSeconds(hour, mode, 1)
-                    } catch (_: Exception) {}
+            if (mode == DetectionMode.TRAVEL || durationMinutes <= 0) {
+                // In Travel Mode: runs 24x7 indefinitely until user explicitly authenticates
+                _serviceRemainingSeconds.value = -1L
+                while (isActive && _serviceShieldState.value != ShieldState.DISARMED) {
+                    delay(1000)
+                    if (_serviceShieldState.value == ShieldState.ARMED) {
+                        try {
+                            val cal = java.util.Calendar.getInstance()
+                            val hour = cal.get(java.util.Calendar.HOUR_OF_DAY)
+                            UserProfileRepository(applicationContext).recordModeUsageSeconds(hour, DetectionMode.TRAVEL, 1)
+                        } catch (_: Exception) {}
+                    }
                 }
-                // Silent background timer countdown - no notification spam
-            }
+            } else {
+                var remaining = durationMinutes * 60L
+                _serviceRemainingSeconds.value = remaining
 
-            if (remaining <= 0 && _serviceShieldState.value != ShieldState.DISARMED) {
-                disarm(this@KavachForegroundService)
+                while (isActive && remaining > 0 && _serviceShieldState.value != ShieldState.DISARMED) {
+                    delay(1000)
+                    remaining--
+                    _serviceRemainingSeconds.value = remaining
+                    if (_serviceShieldState.value == ShieldState.ARMED) {
+                        try {
+                            val cal = java.util.Calendar.getInstance()
+                            val hour = cal.get(java.util.Calendar.HOUR_OF_DAY)
+                            UserProfileRepository(applicationContext).recordModeUsageSeconds(hour, mode, 1)
+                        } catch (_: Exception) {}
+                    }
+                }
+
+                // If timer expired without user authenticating in between, automatically switch to 24x7 Travel Mode!
+                if (remaining <= 0 && _serviceShieldState.value != ShieldState.DISARMED) {
+                    val prefs = getSharedPreferences("kavach_prefs", Context.MODE_PRIVATE)
+                    prefs.edit().putString("detection_mode", DetectionMode.TRAVEL.name).apply()
+                    sensorFusion?.setDetectionMode(DetectionMode.TRAVEL)
+                    sensorFusion?.recalibrate()
+                    _serviceRemainingSeconds.value = -1L
+                    val nm = getSystemService(NotificationManager::class.java)
+                    nm?.notify(NOTIFICATION_ID, buildNotification())
+
+                    while (isActive && _serviceShieldState.value != ShieldState.DISARMED) {
+                        delay(1000)
+                        if (_serviceShieldState.value == ShieldState.ARMED) {
+                            try {
+                                val cal = java.util.Calendar.getInstance()
+                                val hour = cal.get(java.util.Calendar.HOUR_OF_DAY)
+                                UserProfileRepository(applicationContext).recordModeUsageSeconds(hour, DetectionMode.TRAVEL, 1)
+                            } catch (_: Exception) {}
+                        }
+                    }
+                }
             }
         }
     }
