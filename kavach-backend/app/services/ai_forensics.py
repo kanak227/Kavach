@@ -206,3 +206,4 @@ Provide a concise, reassuring, expert security answer (maximum 3 paragraphs).
             "recommended_actions": ["Review device status in dashboard"],
             "powered_by": "Kavach Security Assistant (Fallback)"
         }
+

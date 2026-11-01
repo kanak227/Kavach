@@ -38,3 +38,4 @@ class CopilotQueryResponse(BaseModel):
     answer: str
     recommended_actions: List[str] = []
     powered_by: str = "Google Gemini 1.5 Flash"
+

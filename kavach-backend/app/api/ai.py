@@ -146,3 +146,4 @@ async def ask_copilot(
         recommended_actions=ai_result.get("recommended_actions", []),
         powered_by=ai_result.get("powered_by", "Google Gemini 1.5 Flash")
     )
+
