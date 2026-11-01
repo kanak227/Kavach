@@ -203,5 +203,19 @@ The Android client sends passive state updates at low cadence (e.g. every 5–10
 
 ---
 
+## 📦 Python Dependencies & Environment
+
+For a complete breakdown of all packages, version requirements, system bindings, and setup instructions, see the dedicated [**`DEPENDENCIES.md`**](file:///c:/Users/Kanak/Downloads/final/kavach-backend/DEPENDENCIES.md) guide.
+
+```bash
+# Quick install
+pip install -r requirements.txt
+
+# Or run diagnostic verifier
+python verify_backend.py
+```
+
+---
+
 ## 📄 License
 Part of the **Kavach Security System** by **Kanak Verma (@kanak227)**.
