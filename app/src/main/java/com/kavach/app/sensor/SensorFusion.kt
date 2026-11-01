@@ -505,17 +505,57 @@ class SensorFusion(context: Context) : SensorEventListener {
         // Phase 2: Active Sub-State Handling
         when (_travelCurrentSubState.value) {
             TravelSubState.IN_POCKET -> {
-                // Strictly vertical extraction detection from pocket/bag
-                handlePocketDetection(x, y, z, totalG, accelDeviation)
+                // If phone is taken out of pocket into open room/day light
+                val isOutOfPocket = (currentLight >= 35f && !currentProximityCovered)
+                if (isOutOfPocket) {
+                    // Evaluate pickpocket extraction fusion
+                    handlePocketDetection(x, y, z, totalG, accelDeviation)
+
+                    // If no theft was triggered and phone has been in light beyond the fusion window, transition to ACTIVE_USE
+                    if (!_motionDetected.value && (now - lastProximityOpenTime) > signalWindowMs) {
+                        _travelCurrentSubState.value = TravelSubState.ACTIVE_USE
+                        travelHandCycleStart = now
+                        travelDeskBaselineSet = false
+                        travelDeskCalibrationSamples = 0
+                    }
+                } else {
+                    // Strictly vertical extraction detection while inside pocket/bag
+                    handlePocketDetection(x, y, z, totalG, accelDeviation)
+                }
             }
 
             TravelSubState.DESK_IDLE -> {
-                // Strictly vertical lift with vehicle bump shock absorber
-                handleTravelDeskDetection(x, y, z)
+                // If user puts phone into pocket from desk
+                val isPutInPocket = (currentLight < 25f && currentProximityCovered)
+                if (isPutInPocket) {
+                    _travelCurrentSubState.value = TravelSubState.IN_POCKET
+                    travelDeskBaselineSet = false
+                    travelDeskCalibrationSamples = 0
+                    pocketBaselineLight = currentLight
+                    lightBaselineSet = true
+                    handlePocketDetection(x, y, z, totalG, accelDeviation)
+                } else {
+                    // Strictly vertical lift with vehicle bump shock absorber
+                    handleTravelDeskDetection(x, y, z)
+                }
             }
 
             TravelSubState.ACTIVE_USE, TravelSubState.CALIBRATING_BASE -> {
-                // Phone is actively with user in hand: dormant, never false alarms
+                // 1. Check if user put phone inside pocket or bag!
+                val verticalRatio = if (totalG > 0.1f) abs(y) / totalG else 0f
+                val isPutInPocket = (currentLight < 25f && currentProximityCovered) || (currentLight < 15f && verticalRatio > 0.65f)
+
+                if (isPutInPocket) {
+                    _travelCurrentSubState.value = TravelSubState.IN_POCKET
+                    travelDeskBaselineSet = false
+                    travelDeskCalibrationSamples = 0
+                    pocketBaselineLight = currentLight
+                    lightBaselineSet = true
+                    handlePocketDetection(x, y, z, totalG, accelDeviation)
+                    return
+                }
+
+                // 2. Phone is actively with user in hand: dormant, never false alarms
                 _sensorReading.value = _sensorReading.value.copy(motionMagnitude = accelDeviation)
 
                 val elapsedInCycle = now - travelHandCycleStart
@@ -540,7 +580,7 @@ class SensorFusion(context: Context) : SensorEventListener {
                         travelDeskCalibrationSamples++
 
                         if (elapsedInStillness >= TRAVEL_STILLNESS_WINDOW_MS && travelDeskCalibrationSamples >= 15) {
-                            // 30 seconds of stillness complete: user set down phone! Switch to DESK_IDLE!
+                            // 30 seconds of stillness complete: user set down phone on table/desk! Switch to DESK_IDLE!
                             val mag = sqrt(travelBaselineX * travelBaselineX + travelBaselineY * travelBaselineY + travelBaselineZ * travelBaselineZ)
                             travelBaselineG = if (mag > 0.1f) mag else 9.81f
                             travelNormalX = travelBaselineX / travelBaselineG
