@@ -113,8 +113,12 @@ async def generate_gemini_threat_brief(incident: Dict[str, Any]) -> Dict[str, An
 
     try:
         genai.configure(api_key=api_key)
+        model_name = settings.GEMINI_MODEL
+        if not model_name.startswith("models/"):
+            model_name = f"models/{model_name}"
+
         model = genai.GenerativeModel(
-            model_name=settings.GEMINI_MODEL,
+            model_name=model_name,
             generation_config={"response_mime_type": "application/json"}
         )
 
@@ -178,7 +182,11 @@ async def ask_gemini_copilot(question: str, context: Dict[str, Any]) -> Dict[str
 
     try:
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel(model_name=settings.GEMINI_MODEL)
+        model_name = settings.GEMINI_MODEL
+        if not model_name.startswith("models/"):
+            model_name = f"models/{model_name}"
+
+        model = genai.GenerativeModel(model_name=model_name)
 
         prompt = f"""
 You are the Kavach Security Copilot. The user is asking a question about their anti-theft security system.

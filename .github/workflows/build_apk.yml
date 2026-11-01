@@ -32,3 +32,4 @@ jobs:
       with:
         name: kavach-app-debug
         path: kavach-frontend/app/build/outputs/apk/debug/app-debug.apk
+
