@@ -1,4 +1,4 @@
-﻿plugins {
+plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
 }
@@ -62,6 +62,7 @@ dependencies {
 
     // Biometric
     implementation(libs.androidx.biometric)
+    implementation(libs.androidx.fragment.ktx)
 
     // Accompanist Permissions
     implementation(libs.accompanist.permissions)

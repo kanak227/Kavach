@@ -28,10 +28,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.FileProvider
 import android.net.Uri
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.util.Log
 import android.app.TimePickerDialog
 import com.kavach.app.data.KavachSettings
 import com.kavach.app.data.NightSchedule
@@ -97,41 +100,22 @@ fun ProfileScreen(
         } else null
     }
 
-    val takePictureLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.TakePicture()
-    ) { success ->
-        if (success && tempCameraFile.exists()) {
-            try {
-                tempCameraFile.copyTo(avatarFile, overwrite = true)
-                tempCameraFile.delete()
-                profilePicturePath = avatarFile.absolutePath
-                avatarBitmapKey = System.currentTimeMillis()
-                onSaveProfile(
-                    profile.copy(
-                        fullName = fullName,
-                        email = email,
-                        phoneNumber = phone,
-                        emergencyContactName = emergencyName,
-                        emergencyContactPhone = emergencyPhone,
-                        bloodGroup = bloodGroup,
-                        homeAddress = address,
-                        notes = notes,
-                        profilePicturePath = avatarFile.absolutePath
-                    )
-                )
-            } catch (_: Exception) {}
-        }
-    }
-
-    val pickGalleryLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.GetContent()
-    ) { uri: Uri? ->
-        if (uri != null) {
-            try {
-                context.contentResolver.openInputStream(uri)?.use { input ->
-                    avatarFile.outputStream().use { output ->
-                        input.copyTo(output)
-                    }
+    fun saveAvatarFromStream(inputStream: java.io.InputStream) {
+        try {
+            val bytes = inputStream.readBytes()
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+            var sampleSize = 1
+            val maxDimension = 1080
+            while (bounds.outWidth / sampleSize > maxDimension || bounds.outHeight / sampleSize > maxDimension) {
+                sampleSize *= 2
+            }
+            val decodeOpts = BitmapFactory.Options().apply { inSampleSize = sampleSize }
+            val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, decodeOpts)
+            if (bitmap != null) {
+                avatarFile.parentFile?.mkdirs()
+                avatarFile.outputStream().use { out ->
+                    bitmap.compress(Bitmap.CompressFormat.JPEG, 90, out)
                 }
                 profilePicturePath = avatarFile.absolutePath
                 avatarBitmapKey = System.currentTimeMillis()
@@ -148,7 +132,38 @@ fun ProfileScreen(
                         profilePicturePath = avatarFile.absolutePath
                     )
                 )
-            } catch (_: Exception) {}
+            }
+        } catch (e: Exception) {
+            Log.e("ProfileScreen", "Failed to process and save avatar", e)
+        }
+    }
+
+    val takePictureLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicture()
+    ) { success ->
+        if (success && tempCameraFile.exists()) {
+            try {
+                tempCameraFile.inputStream().use { stream ->
+                    saveAvatarFromStream(stream)
+                }
+                tempCameraFile.delete()
+            } catch (e: Exception) {
+                Log.e("ProfileScreen", "Failed to load captured photo", e)
+            }
+        }
+    }
+
+    val pickGalleryLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            try {
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    saveAvatarFromStream(input)
+                }
+            } catch (e: Exception) {
+                Log.e("ProfileScreen", "Failed to open gallery image stream", e)
+            }
         }
     }
 
@@ -157,13 +172,19 @@ fun ProfileScreen(
     ) { isGranted ->
         if (isGranted) {
             try {
+                tempCameraFile.parentFile?.mkdirs()
+                if (!tempCameraFile.exists()) {
+                    tempCameraFile.createNewFile()
+                }
                 val uri = FileProvider.getUriForFile(
                     context,
                     "${context.packageName}.fileprovider",
                     tempCameraFile
                 )
                 takePictureLauncher.launch(uri)
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                Log.e("ProfileScreen", "Failed to launch camera after permission", e)
+            }
         }
     }
 
@@ -175,13 +196,19 @@ fun ProfileScreen(
 
         if (hasCam) {
             try {
+                tempCameraFile.parentFile?.mkdirs()
+                if (!tempCameraFile.exists()) {
+                    tempCameraFile.createNewFile()
+                }
                 val uri = FileProvider.getUriForFile(
                     context,
                     "${context.packageName}.fileprovider",
                     tempCameraFile
                 )
                 takePictureLauncher.launch(uri)
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                Log.e("ProfileScreen", "Failed to launch camera", e)
+            }
         } else {
             cameraPermissionLauncher.launch(android.Manifest.permission.CAMERA)
         }
@@ -716,7 +743,13 @@ fun ProfileScreen(
                     TextButton(
                         onClick = {
                             showPhotoOptionsDialog = false
-                            pickGalleryLauncher.launch("image/*")
+                            try {
+                                pickGalleryLauncher.launch(
+                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                )
+                            } catch (e: Exception) {
+                                Log.e("ProfileScreen", "Failed to launch gallery picker", e)
+                            }
                         },
                         modifier = Modifier.fillMaxWidth()
                     ) {
@@ -889,7 +922,13 @@ fun ProfileScreen(
                         OutlinedButton(
                             onClick = {
                                 showZoomOverlay = false
-                                pickGalleryLauncher.launch("image/*")
+                                try {
+                                    pickGalleryLauncher.launch(
+                                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                    )
+                                } catch (e: Exception) {
+                                    Log.e("ProfileScreen", "Failed to launch gallery from zoom", e)
+                                }
                             },
                             shape = RoundedCornerShape(10.dp),
                             border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.4f))
