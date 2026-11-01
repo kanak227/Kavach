@@ -119,14 +119,14 @@ fun GlowingStatusRing(
     )
 
     Box(
-        modifier = modifier.size(280.dp),
+        modifier = modifier.size(220.dp),
         contentAlignment = Alignment.Center
     ) {
         // Canvas for the ring + glow + scanner
         Canvas(modifier = Modifier.fillMaxSize()) {
             val center = Offset(size.width / 2, size.height / 2)
-            val radius = size.minDimension / 2 - 30f
-            val strokeWidth = 6f
+            val radius = size.minDimension / 2 - 20f
+            val strokeWidth = 5f
 
             // Outer glow ring
             val shouldPulse = shieldState != ShieldState.DISARMED
@@ -212,35 +212,35 @@ fun GlowingStatusRing(
         // Center text — with proper padding for all states
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.padding(horizontal = 24.dp)
+            modifier = Modifier.padding(horizontal = 16.dp)
         ) {
             Text(
                 text = statusText,
                 fontFamily = OrbitronFamily,
                 fontWeight = FontWeight.Bold,
                 fontSize = when (shieldState) {
-                    ShieldState.DISARMED -> 28.sp
-                    ShieldState.AUTHENTICATED -> 26.sp
-                    else -> 32.sp
+                    ShieldState.DISARMED -> 22.sp
+                    ShieldState.AUTHENTICATED -> 20.sp
+                    else -> 24.sp
                 },
-                letterSpacing = 3.sp,
+                letterSpacing = 2.5.sp,
                 color = animatedColor,
                 textAlign = TextAlign.Center
             )
 
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(4.dp))
 
             when (shieldState) {
                 ShieldState.ARMING -> {
                     Text(
                         text = countdownValue.toString(),
-                        style = MaterialTheme.typography.displayMedium,
+                        style = MaterialTheme.typography.headlineLarge,
                         color = if (colors.isDark) CyberAmber else LightAmber,
                         textAlign = TextAlign.Center
                     )
                     Text(
-                        text = "PLACE PHONE DOWN",
-                        style = MaterialTheme.typography.labelMedium,
+                        text = "CALIBRATING POSITION",
+                        style = MaterialTheme.typography.labelSmall,
                         color = colors.textSecondary,
                         textAlign = TextAlign.Center
                     )
@@ -248,13 +248,13 @@ fun GlowingStatusRing(
                 ShieldState.ARMED -> {
                     Text(
                         text = remainingTime,
-                        style = MaterialTheme.typography.displayMedium,
+                        style = MaterialTheme.typography.headlineLarge,
                         color = if (colors.isDark) KavachGoldLight else Color(0xFF00758F),
                         textAlign = TextAlign.Center
                     )
                     Text(
-                        text = when (detectionMode) { DetectionMode.MOTION -> "DESK GUARD"; DetectionMode.AUTO_POCKET -> "POCKET GUARD (AUTO-LOOP)"; else -> "POCKET GUARD" },
-                        style = MaterialTheme.typography.labelMedium,
+                        text = detectionMode.title.uppercase(),
+                        style = MaterialTheme.typography.labelSmall,
                         color = colors.textSecondary,
                         textAlign = TextAlign.Center
                     )
@@ -262,13 +262,13 @@ fun GlowingStatusRing(
                 ShieldState.TRIGGERED -> {
                     Text(
                         text = countdownValue.toString(),
-                        style = MaterialTheme.typography.displayMedium,
+                        style = MaterialTheme.typography.headlineLarge,
                         color = if (colors.isDark) CyberAmber else LightAmber,
                         textAlign = TextAlign.Center
                     )
                     Text(
                         text = "AUTHENTICATE NOW",
-                        style = MaterialTheme.typography.labelMedium,
+                        style = MaterialTheme.typography.labelSmall,
                         color = if (colors.isDark) CyberAmber else LightAmber,
                         textAlign = TextAlign.Center
                     )
@@ -276,13 +276,13 @@ fun GlowingStatusRing(
                 ShieldState.ALARM_ACTIVE -> {
                     Text(
                         text = "! ! !",
-                        style = MaterialTheme.typography.displayMedium,
+                        style = MaterialTheme.typography.headlineLarge,
                         color = CyberRed.copy(alpha = pulseAlpha),
                         textAlign = TextAlign.Center
                     )
                     Text(
                         text = "INTRUDER DETECTED",
-                        style = MaterialTheme.typography.labelMedium,
+                        style = MaterialTheme.typography.labelSmall,
                         color = CyberRed,
                         textAlign = TextAlign.Center
                     )
@@ -290,13 +290,13 @@ fun GlowingStatusRing(
                 ShieldState.AUTHENTICATED -> {
                     Text(
                         text = "✓",
-                        fontSize = 36.sp,
+                        fontSize = 30.sp,
                         color = CyberGreen,
                         textAlign = TextAlign.Center
                     )
                     Text(
                         text = "WELCOME BACK",
-                        style = MaterialTheme.typography.labelMedium,
+                        style = MaterialTheme.typography.labelSmall,
                         color = CyberGreen,
                         textAlign = TextAlign.Center
                     )
@@ -304,7 +304,7 @@ fun GlowingStatusRing(
                 ShieldState.DISARMED -> {
                     Text(
                         text = "TAP TO ARM",
-                        style = MaterialTheme.typography.labelMedium,
+                        style = MaterialTheme.typography.labelSmall,
                         color = colors.textMuted,
                         textAlign = TextAlign.Center
                     )

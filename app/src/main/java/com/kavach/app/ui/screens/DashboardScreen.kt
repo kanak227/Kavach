@@ -52,6 +52,7 @@ fun DashboardScreen(
     decoyCountdown: Int,
     sensorReading: SensorReading,
     settings: KavachSettings,
+    hourlyUsage: Map<Int, Map<DetectionMode, Int>> = emptyMap(),
     isNightGuardDismissedForTonight: Boolean = false,
     isNightWindowActive: Boolean = false,
     onArmShield: () -> Unit,
@@ -65,19 +66,24 @@ fun DashboardScreen(
     onTimerPresetSelected: (TimerPreset) -> Unit,
     onSensitivityChanged: (Int) -> Unit,
     onSettingsChanged: (KavachSettings) -> Unit,
-    onNavigateToSettings: () -> Unit,
+    onNavigateToSettings: () -> Unit = {},
+    onNavigateToProfile: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val scrollState = rememberScrollState()
     val colors = LocalKavachColors.current
     val context = LocalContext.current
 
-    val remainingTime = remember(remainingSeconds) {
-        val hours = remainingSeconds / 3600
-        val minutes = (remainingSeconds % 3600) / 60
-        val seconds = remainingSeconds % 60
-        if (hours > 0) String.format("%02d:%02d:%02d", hours, minutes, seconds)
-        else String.format("%02d:%02d", minutes, seconds)
+    val remainingTime = remember(remainingSeconds, settings.detectionMode) {
+        if (remainingSeconds < 0 || settings.detectionMode == DetectionMode.TRAVEL) {
+            "24×7 ACTIVE"
+        } else {
+            val hours = remainingSeconds / 3600
+            val minutes = (remainingSeconds % 3600) / 60
+            val seconds = remainingSeconds % 60
+            if (hours > 0) String.format("%02d:%02d:%02d", hours, minutes, seconds)
+            else String.format("%02d:%02d", minutes, seconds)
+        }
     }
 
     val countdownValue = when (shieldState) {
@@ -91,9 +97,10 @@ fun DashboardScreen(
 
     if (showArmDialog) {
         val modeText = when (settings.detectionMode) {
-            DetectionMode.MOTION -> "🚨 DESK GUARD ACTIVE\n\nPlace your phone on a table, desk, or bedside.\nDo NOT touch or move it once armed.\n\nAny physical movement will trigger the alarm."
-            DetectionMode.POCKET -> "🛡️ MANUAL POCKET GUARD ACTIVE\n\nSlide the phone into your pocket or bag during the countdown.\nWalking is ignored. Extraction triggers the alarm.\nDisarms permanently once you unlock."
-            DetectionMode.AUTO_POCKET -> "🚇 SMART TRANSIT GUARD ACTIVE\n\nDesigned for metro, bus & train commutes!\nWhen you unlock your phone to check messages or calls, the guard remains dormant.\nAs soon as you turn off / lock your screen, it automatically re-arms!"
+            DetectionMode.TRAVEL -> "🚗 TRAVEL MODE ACTIVE\n\nDynamic adaptive multi-sensor protection.\n• Inside pocket/bag: Pocket Guard engages\n• Idle/stationary: Desk Guard auto-engages\n• Active hand use: dormant, no false alarms"
+            DetectionMode.SLEEP -> "🌙 SLEEP MODE ACTIVE\n\nHigh-tolerance nocturnal protection.\nBed tosses, dreams, and mattress movements are completely ignored.\nAlarms only if lifted sky-high from baseline."
+            DetectionMode.DESK -> "🚨 DESK MODE ACTIVE\n\nPlace phone on table or desk.\nInstant vertical lift detection. Horizontal surface sliding produces 0 force and will never trigger."
+            DetectionMode.POCKET -> "🛡️ POCKET GUARD ACTIVE\n\nSlide phone into your pocket or bag during countdown.\nWalking rhythm is filtered out. Extraction jerk & light spike triggers the alarm.\nDisarm manually upon unlock."
         }
         AlertDialog(
             onDismissRequest = { showArmDialog = false },
@@ -131,7 +138,6 @@ fun DashboardScreen(
                         TimerPreset.MIN_30 -> "30 min"
                         TimerPreset.HOUR_1 -> "1 hour"
                         TimerPreset.HOUR_2 -> "2 hours"
-                        TimerPreset.HOUR_4 -> "4 hours"
                     }
                     Text(
                         text = "Duration: $durationText",
@@ -239,13 +245,6 @@ fun DashboardScreen(
                         tint = colors.textSecondary
                     )
                 }
-                IconButton(onClick = onNavigateToSettings) {
-                    Icon(
-                        imageVector = Icons.Outlined.Settings,
-                        contentDescription = "Settings",
-                        tint = colors.textSecondary
-                    )
-                }
             }
         }
 
@@ -273,41 +272,13 @@ fun DashboardScreen(
 
         Spacer(modifier = Modifier.height(20.dp))
 
-        // === ARM / DISARM Button ===
-        AnimatedContent(
-            targetState = shieldState,
-            transitionSpec = {
-                fadeIn() togetherWith fadeOut()
-            },
-            label = "armButton"
-        ) { state ->
-            when (state) {
-                ShieldState.DISARMED -> {
-                    Button(
-                        onClick = { showArmDialog = true },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(56.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (colors.isDark) KavachGold.copy(alpha = 0.22f) else Color(0xFF00758F),
-                            contentColor = if (colors.isDark) KavachGold else Color.White
-                        ),
-                        shape = RoundedCornerShape(16.dp),
-                        border = if (colors.isDark) androidx.compose.foundation.BorderStroke(1.2.dp, KavachGold.copy(alpha = 0.7f)) else null
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.Shield,
-                            contentDescription = null,
-                            modifier = Modifier.size(24.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "ARM SHIELD",
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
+        // === ARM / DISARM Action (Shown during active states; Tap to Arm is on the ring) ===
+        AnimatedVisibility(
+            visible = shieldState != ShieldState.DISARMED,
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically()
+        ) {
+            when (shieldState) {
                 ShieldState.ARMING -> {
                     val cancelColor = if (colors.isDark) CyberAmber else LightAmber
                     OutlinedButton(
@@ -322,7 +293,7 @@ fun DashboardScreen(
                         shape = RoundedCornerShape(16.dp)
                     ) {
                         Text(
-                            text = "CANCEL",
+                            text = "CANCEL ARMING",
                             style = MaterialTheme.typography.labelLarge,
                             fontWeight = FontWeight.Bold
                         )
@@ -371,72 +342,20 @@ fun DashboardScreen(
                         )
                     }
                 }
+                else -> {}
             }
         }
 
         Spacer(modifier = Modifier.height(20.dp))
 
-        // === Detection Mode Toggle (only when disarmed) ===
+        // === Detection Mode Selector (only when disarmed) ===
         AnimatedVisibility(
             visible = shieldState == ShieldState.DISARMED,
             enter = fadeIn() + expandVertically(),
             exit = fadeOut() + shrinkVertically()
         ) {
             Column {
-                // === Pocket Guard (Auto-Loop Commuter) Active Session Card ===
-        if (isAutoPocketSessionActive && shieldState == ShieldState.DISARMED) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(if (colors.isDark) Color(0xFF131A26) else Color(0xFFF1F5F9))
-                    .border(1.2.dp, if (colors.isDark) KavachGold.copy(alpha = 0.6f) else Color(0xFF00758F).copy(alpha = 0.6f), RoundedCornerShape(16.dp))
-                    .padding(16.dp)
-            ) {
-                Column {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Outlined.Loop,
-                            contentDescription = null,
-                            tint = if (colors.isDark) KavachGold else Color(0xFF00758F),
-                            modifier = Modifier.size(22.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "POCKET GUARD (AUTO-LOOP COMMUTER) ACTIVE",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            color = colors.textPrimary
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = "Phone is in use. Kavach remains dormant while your screen is on. As soon as you press the power button or turn off the screen, it will automatically re-arm in your pocket!",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = colors.textSecondary,
-                        lineHeight = 18.sp
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Button(
-                        onClick = { onQuitAutoLoop() },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(10.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (colors.isDark) CyberRed.copy(alpha = 0.22f) else CyberRed.copy(alpha = 0.12f),
-                            contentColor = CyberRed
-                        ),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, CyberRed.copy(alpha = 0.5f))
-                    ) {
-                        Icon(Icons.Outlined.Lock, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("AUTHENTICATE & CLOSE AUTO-LOOP FOR THIS SESSION", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
-                    }
-                }
-            }
-            Spacer(modifier = Modifier.height(16.dp))
-        }
-
-        SectionHeader(title = "DETECTION MODE", colors = colors)
+                SectionHeader(title = "DETECTION MODE", colors = colors)
                 Spacer(modifier = Modifier.height(10.dp))
                 DetectionModeSelector(
                     selectedMode = settings.detectionMode,
@@ -462,12 +381,13 @@ fun DashboardScreen(
                     colors = colors
                 )
 
-                // Custom timer input
+                // Custom timer input (with Close / Unsee option)
                 if (settings.selectedTimerPreset == TimerPreset.CUSTOM) {
                     Spacer(modifier = Modifier.height(10.dp))
                     CustomTimerInput(
                         currentMinutes = settings.customTimerMinutes,
                         onMinutesChanged = { onSettingsChanged(settings.copy(customTimerMinutes = it)) },
+                        onCloseCustom = { onTimerPresetSelected(TimerPreset.HOUR_2) },
                         colors = colors
                     )
                 }
@@ -540,37 +460,24 @@ fun DashboardScreen(
             }
         }
 
-        // === Feature Toggles (only show when disarmed) ===
-        AnimatedVisibility(
-            visible = shieldState == ShieldState.DISARMED,
-            enter = fadeIn() + expandVertically(),
-            exit = fadeOut() + shrinkVertically()
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                SectionHeader(title = "FEATURES", colors = colors)
-                // Spacer(modifier = Modifier.height(10.dp)) not needed here since verticalArrangement handles it
+        // === Daily Guard Activity Graph (Moved from profile to bottom of home page) ===
+        Spacer(modifier = Modifier.height(10.dp))
+        SectionHeader(title = "DAILY GUARD ACTIVITY (9 AM – 9 PM)", colors = colors)
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = "Hourly breakdown of all 4 Guard Modes active on your device today.",
+            style = MaterialTheme.typography.bodySmall,
+            color = colors.textMuted
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+        DailyGuardUsageGraph(
+            hourlyUsage = hourlyUsage,
+            colors = colors,
+            isShieldArmed = (shieldState == ShieldState.ARMED)
+        )
 
-                FeatureToggleCard(
-                    title = "Flashlight Strobe",
-                    description = "Flash torch rapidly during alarm",
-                    isEnabled = settings.flashlightEnabled,
-                    onToggle = { onSettingsChanged(settings.copy(flashlightEnabled = it)) },
-                    colors = colors
-                )
-
-                SensitivityCard(
-                    level = settings.sensitivityLevel,
-                    onLevelChange = onSensitivityChanged,
-                    detectionMode = settings.detectionMode,
-                    colors = colors
-                )
-
-                Spacer(modifier = Modifier.height(20.dp))
-            }
-        }
-
-        // Bottom spacing for ad banner
-        Spacer(modifier = Modifier.height(70.dp))
+        // Bottom spacing for bottom navigation bar
+        Spacer(modifier = Modifier.height(90.dp))
     }
 }
 
@@ -590,193 +497,98 @@ private fun DetectionModeSelector(
     onModeSelected: (DetectionMode) -> Unit,
     colors: KavachColors
 ) {
-    val isDeskSelected = selectedMode == DetectionMode.MOTION
-    val isPocketSelected = selectedMode == DetectionMode.POCKET || selectedMode == DetectionMode.AUTO_POCKET
     val activeColor = if (colors.isDark) KavachGold else Color(0xFF00758F)
 
-    Column(modifier = Modifier.fillMaxWidth()) {
-        // Two Primary Mode Cards: Desk Guard vs Pocket Guard
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            // Desk Guard Primary Card
-            val deskBg = if (isDeskSelected) {
-                if (colors.isDark) KavachGold.copy(alpha = 0.16f) else Color(0xFF00758F).copy(alpha = 0.12f)
-            } else colors.card
-            val deskBorder = if (isDeskSelected) activeColor else colors.cardBorder
-            val deskTint = if (isDeskSelected) activeColor else colors.textSecondary
+    data class ModeItem(
+        val mode: DetectionMode,
+        val title: String,
+        val subtitle: String,
+        val icon: androidx.compose.ui.graphics.vector.ImageVector
+    )
 
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(deskBg)
-                    .border(1.dp, deskBorder, RoundedCornerShape(16.dp))
-                    .clickable { onModeSelected(DetectionMode.MOTION) }
-                    .padding(14.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.Vibration,
-                    contentDescription = "Desk Guard",
-                    tint = deskTint,
-                    modifier = Modifier.size(28.dp)
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = "DESK GUARD",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = if (isDeskSelected) activeColor else colors.textPrimary,
-                    fontWeight = if (isDeskSelected) FontWeight.Bold else FontWeight.Medium
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "Table & Bedside (Zero false alarms from horizontal sliding)",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = colors.textMuted,
-                    textAlign = TextAlign.Center,
-                    lineHeight = 14.sp,
-                    fontSize = 10.5.sp
-                )
-            }
+    val modes = listOf(
+        ModeItem(
+            mode = DetectionMode.TRAVEL,
+            title = "TRAVEL MODE",
+            subtitle = "Dynamic pocket & idle auto-guard",
+            icon = Icons.Outlined.DirectionsCar
+        ),
+        ModeItem(
+            mode = DetectionMode.SLEEP,
+            title = "SLEEP MODE",
+            subtitle = "Bed-safe, ignores dream movement",
+            icon = Icons.Outlined.Bedtime
+        ),
+        ModeItem(
+            mode = DetectionMode.DESK,
+            title = "DESK MODE",
+            subtitle = "Instant Y-lift, zero slide trigger",
+            icon = Icons.Outlined.Vibration
+        ),
+        ModeItem(
+            mode = DetectionMode.POCKET,
+            title = "POCKET GUARD",
+            subtitle = "Single-arm pocket/bag extraction",
+            icon = Icons.AutoMirrored.Outlined.DirectionsWalk
+        )
+    )
 
-            // Pocket Guard Primary Card
-            val pocketBg = if (isPocketSelected) {
-                if (colors.isDark) KavachGold.copy(alpha = 0.16f) else Color(0xFF00758F).copy(alpha = 0.12f)
-            } else colors.card
-            val pocketBorder = if (isPocketSelected) activeColor else colors.cardBorder
-            val pocketTint = if (isPocketSelected) activeColor else colors.textSecondary
-
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(pocketBg)
-                    .border(1.dp, pocketBorder, RoundedCornerShape(16.dp))
-                    .clickable {
-                        // Keep current sub-mode or default to POCKET
-                        if (!isPocketSelected) onModeSelected(DetectionMode.POCKET)
-                    }
-                    .padding(14.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Outlined.DirectionsWalk,
-                    contentDescription = "Pocket Guard",
-                    tint = pocketTint,
-                    modifier = Modifier.size(28.dp)
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = "POCKET GUARD",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = if (isPocketSelected) activeColor else colors.textPrimary,
-                    fontWeight = if (isPocketSelected) FontWeight.Bold else FontWeight.Medium
-                )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "Pocket & Commuting (Walking rhythm filter + extraction detection)",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = colors.textMuted,
-                    textAlign = TextAlign.Center,
-                    lineHeight = 14.sp,
-                    fontSize = 10.5.sp
-                )
-            }
-        }
-
-        // When Pocket Guard is selected: show the two operating types
-        if (isPocketSelected) {
-            Spacer(modifier = Modifier.height(12.dp))
-            Surface(
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        // 2x2 Square Grid
+        for (rowIndex in 0..1) {
+            Row(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(14.dp),
-                color = colors.card,
-                border = androidx.compose.foundation.BorderStroke(1.dp, colors.cardBorder)
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Column(modifier = Modifier.padding(14.dp)) {
-                    Text(
-                        text = "CHOOSE POCKET GUARD TYPE:",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = colors.textSecondary,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 0.8.sp
-                    )
-                    Spacer(modifier = Modifier.height(10.dp))
+                for (colIndex in 0..1) {
+                    val item = modes[rowIndex * 2 + colIndex]
+                    val isSelected = selectedMode == item.mode
+                    val cardBg = if (isSelected) {
+                        if (colors.isDark) KavachGold.copy(alpha = 0.16f) else Color(0xFF00758F).copy(alpha = 0.12f)
+                    } else colors.card
+                    val cardBorder = if (isSelected) activeColor else colors.cardBorder
+                    val cardTint = if (isSelected) activeColor else colors.textSecondary
 
-                    // Type 1: Standard (Single-Arm)
-                    val isType1 = selectedMode == DetectionMode.POCKET
-                    Row(
+                    Column(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(if (isType1) activeColor.copy(alpha = 0.12f) else Color.Transparent)
-                            .border(1.dp, if (isType1) activeColor else colors.cardBorder.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
-                            .clickable { onModeSelected(DetectionMode.POCKET) }
+                            .weight(1f)
+                            .aspectRatio(1f) // Makes each card a perfect square!
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(cardBg)
+                            .border(1.2.dp, cardBorder, RoundedCornerShape(16.dp))
+                            .clickable { onModeSelected(item.mode) }
                             .padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
                     ) {
-                        RadioButton(
-                            selected = isType1,
-                            onClick = { onModeSelected(DetectionMode.POCKET) },
-                            colors = RadioButtonDefaults.colors(selectedColor = activeColor)
+                        Icon(
+                            imageVector = item.icon,
+                            contentDescription = item.title,
+                            tint = cardTint,
+                            modifier = Modifier.size(32.dp)
                         )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Column {
-                            Text(
-                                text = "Standard (Single-Arm)",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold,
-                                color = if (isType1) activeColor else colors.textPrimary
-                            )
-                            Text(
-                                text = "Arms once. Place in pocket. Disarms permanently upon biometric unlock.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = colors.textMuted,
-                                fontSize = 11.sp,
-                                lineHeight = 15.sp
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    // Type 2: Auto-Loop Commuter
-                    val isType2 = selectedMode == DetectionMode.AUTO_POCKET
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(if (isType2) activeColor.copy(alpha = 0.12f) else Color.Transparent)
-                            .border(1.dp, if (isType2) activeColor else colors.cardBorder.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
-                            .clickable { onModeSelected(DetectionMode.AUTO_POCKET) }
-                            .padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        RadioButton(
-                            selected = isType2,
-                            onClick = { onModeSelected(DetectionMode.AUTO_POCKET) },
-                            colors = RadioButtonDefaults.colors(selectedColor = activeColor)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = item.title,
+                            fontFamily = OrbitronFamily,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                            fontSize = 12.sp,
+                            color = if (isSelected) activeColor else colors.textPrimary,
+                            textAlign = TextAlign.Center
                         )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Column {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    text = "Auto-Loop Commuter (Auto Re-Arm)",
-                                    style = MaterialTheme.typography.titleSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (isType2) activeColor else colors.textPrimary
-                                )
-                            }
-                            Text(
-                                text = "Dormant while phone is on. As soon as you turn off the screen, it automatically re-arms in your pocket so you never need to re-arm manually!",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = colors.textMuted,
-                                fontSize = 11.sp,
-                                lineHeight = 15.sp
-                            )
-                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = item.subtitle,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = colors.textMuted,
+                            textAlign = TextAlign.Center,
+                            lineHeight = 13.sp,
+                            fontSize = 10.sp,
+                            maxLines = 2
+                        )
                     }
                 }
             }
@@ -788,6 +600,7 @@ private fun DetectionModeSelector(
 private fun CustomTimerInput(
     currentMinutes: Int,
     onMinutesChanged: (Int) -> Unit,
+    onCloseCustom: () -> Unit = {},
     colors: KavachColors
 ) {
     val activeColor = if (colors.isDark) KavachGold else Color(0xFF00758F)
@@ -817,35 +630,54 @@ private fun CustomTimerInput(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = "CUSTOM TIMER",
-                style = MaterialTheme.typography.titleMedium,
-                color = colors.textPrimary,
-                fontWeight = FontWeight.SemiBold
-            )
-
-            // Formatted hours & minutes
-            val hours = currentMinutes / 60
-            val mins = currentMinutes % 60
-            val formatted = when {
-                hours > 0 && mins > 0 -> "${hours} hr ${mins} min"
-                hours > 0 -> if (hours == 1) "1 hour" else "$hours hours"
-                mins == 1 -> "1 minute"
-                else -> "$mins min"
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "CUSTOM TIMER",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = colors.textPrimary,
+                    fontWeight = FontWeight.SemiBold
+                )
             }
 
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(chipBgColor)
-                    .padding(horizontal = 10.dp, vertical = 4.dp)
-            ) {
-                Text(
-                    text = formatted,
-                    style = MaterialTheme.typography.labelLarge,
-                    color = activeColor,
-                    fontWeight = FontWeight.Bold
-                )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                // Formatted hours & minutes
+                val hours = currentMinutes / 60
+                val mins = currentMinutes % 60
+                val formatted = when {
+                    hours > 0 && mins > 0 -> "${hours} hr ${mins} min"
+                    hours > 0 -> if (hours == 1) "1 hour" else "$hours hours"
+                    mins == 1 -> "1 minute"
+                    else -> "$mins min"
+                }
+
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(chipBgColor)
+                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                ) {
+                    Text(
+                        text = formatted,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = activeColor,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(6.dp))
+
+                // Close / Unsee Button
+                IconButton(
+                    onClick = onCloseCustom,
+                    modifier = Modifier.size(30.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Close,
+                        contentDescription = "Close Custom Timer Slider",
+                        tint = colors.textMuted,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
             }
         }
 

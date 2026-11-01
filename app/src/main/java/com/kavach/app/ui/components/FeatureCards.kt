@@ -84,7 +84,12 @@ fun SensitivityCard(
     colors: KavachColors = LocalKavachColors.current,
     modifier: Modifier = Modifier
 ) {
-    val label = if (detectionMode == DetectionMode.MOTION) "MOTION SENSITIVITY" else "POCKET SENSITIVITY"
+    val label = when (detectionMode) {
+        DetectionMode.DESK -> "DESK SENSITIVITY"
+        DetectionMode.SLEEP -> "SLEEP SENSITIVITY"
+        DetectionMode.TRAVEL -> "TRAVEL SENSITIVITY"
+        DetectionMode.POCKET -> "POCKET SENSITIVITY"
+    }
     val activeAccent = if (colors.isDark) KavachGold else Color(0xFF00758F)
     val activeDim = if (colors.isDark) KavachGoldDim else Color(0xFF00758F)
     val inactiveTrack = if (colors.isDark) DarkSurfaceElevated else Color(0xFFCBD5E1)

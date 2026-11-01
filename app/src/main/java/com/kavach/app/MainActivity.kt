@@ -38,6 +38,13 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.outlined.Home
+import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.Settings
+import androidx.navigation.compose.currentBackStackEntryAsState
 import com.kavach.app.auth.BiometricAuthManager
 import com.kavach.app.data.ShieldState
 import com.kavach.app.service.KavachForegroundService
@@ -121,6 +128,8 @@ class MainActivity : FragmentActivity() {
             val isNightGuardDismissed by viewModel.isNightGuardDismissedForTonight.collectAsStateWithLifecycle()
             val isNightWindowActive by viewModel.isNightWindowActive.collectAsStateWithLifecycle()
             val isAutoPocketActive by viewModel.isAutoPocketSessionActive.collectAsStateWithLifecycle()
+            val userProfile by viewModel.userProfile.collectAsStateWithLifecycle()
+            val hourlyUsage by viewModel.hourlyUsage.collectAsStateWithLifecycle()
 
             var showExitDialog by remember { mutableStateOf(false) }
             var isOpeningSplashFinished by rememberSaveable { mutableStateOf(false) }
@@ -449,118 +458,202 @@ class MainActivity : FragmentActivity() {
                                 )
                             }
                             else -> {
-                                // Normal navigation
-                                NavHost(
-                                    navController = navController,
-                                    startDestination = "dashboard"
-                                ) {
-                                    composable("dashboard") {
-                                        // Intercept back button on dashboard to show Close warning dialog
-                                        androidx.activity.compose.BackHandler(enabled = shieldState == ShieldState.DISARMED) {
-                                            showExitDialog = true
-                                        }
+                                // Normal navigation with Bottom Bar
+                                val navBackStackEntry by navController.currentBackStackEntryAsState()
+                                val currentRoute = navBackStackEntry?.destination?.route ?: "dashboard"
+                                val showBottomBar = currentRoute in listOf("dashboard", "profile", "settings")
 
-                                        // Auto-activate night schedule immediately on dashboard if time is in range
-                                        LaunchedEffect(settings.nightSchedule) {
-                                            viewModel.checkAndTriggerNightScheduleNow()
-                                        }
-
-                                        Box(modifier = Modifier.fillMaxSize()) {
-                                        DashboardScreen(
-                                            shieldState = shieldState,
-                                            remainingSeconds = remainingSeconds,
-                                            armingCountdown = armingCountdown,
-                                            decoyCountdown = decoyCountdown,
-                                            sensorReading = sensorReading,
-                                            settings = settings,
-                                            isNightGuardDismissedForTonight = isNightGuardDismissed,
-                                            isNightWindowActive = isNightWindowActive,
-                                            onArmShield = { viewModel.armShield() },
-                                            onDisarmShield = {
-                                                if (shieldState == ShieldState.ARMED || shieldState == ShieldState.TRIGGERED || shieldState == ShieldState.ALARM_ACTIVE) {
-                                                    triggerBiometricAuth(
-                                                        onSuccess = { viewModel.onAuthenticationSuccess() }
-                                                    )
-                                                } else {
-                                                    viewModel.disarmShield()
-                                                }
-                                            },
-                                            onCancelNightGuardForTonight = {
-                                                viewModel.cancelNightGuardForTonight()
-                                            },
-                                            onResumeNightGuard = {
-                                                viewModel.resumeNightGuard()
-                                            },
-                                            onTimerPresetSelected = { viewModel.selectTimerPreset(it) },
-                                            onSensitivityChanged = { viewModel.updateSensitivity(it) },
-                                            onSettingsChanged = { viewModel.updateSettings(it) },
-                                            isAutoPocketSessionActive = isAutoPocketActive,
-                                            onPauseTransitSession = { viewModel.pauseTransitSession() },
-                                            onResumeTransitSession = { viewModel.resumeTransitSession() },
-                                            onQuitAutoLoop = {
-                                                triggerBiometricAuth(
-                                                    force = true,
-                                                    onSuccess = { viewModel.quitAutoLoopSession() }
+                                Scaffold(
+                                    containerColor = colors.background,
+                                    bottomBar = {
+                                        if (showBottomBar) {
+                                            NavigationBar(
+                                                containerColor = colors.card,
+                                                contentColor = colors.textPrimary,
+                                                tonalElevation = 8.dp
+                                            ) {
+                                                val navItems = listOf(
+                                                    Triple("dashboard", "Home", Icons.Outlined.Home to Icons.Filled.Home),
+                                                    Triple("profile", "Profile", Icons.Outlined.Person to Icons.Filled.Person),
+                                                    Triple("settings", "Settings", Icons.Outlined.Settings to Icons.Filled.Settings)
                                                 )
-                                            },
-                                            onNavigateToSettings = {
-                                                navController.navigate("settings")
-                                            }
-                                        )
 
+                                                navItems.forEach { (route, label, icons) ->
+                                                    val isSelected = currentRoute == route
+                                                    NavigationBarItem(
+                                                        selected = isSelected,
+                                                        onClick = {
+                                                            if (currentRoute != route) {
+                                                                if (route == "profile") {
+                                                                    viewModel.refreshUsageStats()
+                                                                }
+                                                                navController.navigate(route) {
+                                                                    popUpTo("dashboard") {
+                                                                        saveState = true
+                                                                    }
+                                                                    launchSingleTop = true
+                                                                    restoreState = true
+                                                                }
+                                                            }
+                                                        },
+                                                        icon = {
+                                                            Icon(
+                                                                imageVector = if (isSelected) icons.second else icons.first,
+                                                                contentDescription = label
+                                                            )
+                                                        },
+                                                        label = {
+                                                            Text(
+                                                                text = label,
+                                                                fontFamily = RajdhaniFamily,
+                                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                                                fontSize = 12.sp
+                                                            )
+                                                        },
+                                                        colors = NavigationBarItemDefaults.colors(
+                                                            selectedIconColor = if (colors.isDark) KavachGold else CyberCyan,
+                                                            selectedTextColor = if (colors.isDark) KavachGold else CyberCyan,
+                                                            unselectedIconColor = colors.textSecondary.copy(alpha = 0.6f),
+                                                            unselectedTextColor = colors.textSecondary.copy(alpha = 0.6f),
+                                                            indicatorColor = (if (colors.isDark) KavachGold else CyberCyan).copy(alpha = 0.15f)
+                                                        )
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                ) { innerPadding ->
+                                    NavHost(
+                                        navController = navController,
+                                        startDestination = "dashboard",
+                                        modifier = Modifier.padding(innerPadding)
+                                    ) {
+                                        composable("dashboard") {
+                                            // Intercept back button on dashboard to show Close warning dialog
+                                            androidx.activity.compose.BackHandler(enabled = shieldState == ShieldState.DISARMED) {
+                                                showExitDialog = true
+                                            }
+
+                                            // Auto-activate night schedule immediately on dashboard if time is in range
+                                            LaunchedEffect(settings.nightSchedule) {
+                                                viewModel.checkAndTriggerNightScheduleNow()
+                                            }
+
+                                            Box(modifier = Modifier.fillMaxSize()) {
+                                                DashboardScreen(
+                                                    shieldState = shieldState,
+                                                    remainingSeconds = remainingSeconds,
+                                                    armingCountdown = armingCountdown,
+                                                    decoyCountdown = decoyCountdown,
+                                                    sensorReading = sensorReading,
+                                                    settings = settings,
+                                                    hourlyUsage = hourlyUsage,
+                                                    isNightGuardDismissedForTonight = isNightGuardDismissed,
+                                                    isNightWindowActive = isNightWindowActive,
+                                                    onArmShield = { viewModel.armShield() },
+                                                    onDisarmShield = {
+                                                        if (shieldState == ShieldState.ARMED || shieldState == ShieldState.TRIGGERED || shieldState == ShieldState.ALARM_ACTIVE) {
+                                                            triggerBiometricAuth(
+                                                                onSuccess = { viewModel.onAuthenticationSuccess() }
+                                                            )
+                                                        } else {
+                                                            viewModel.disarmShield()
+                                                        }
+                                                    },
+                                                    onCancelNightGuardForTonight = {
+                                                        viewModel.cancelNightGuardForTonight()
+                                                    },
+                                                    onResumeNightGuard = {
+                                                        viewModel.resumeNightGuard()
+                                                    },
+                                                    onTimerPresetSelected = { viewModel.selectTimerPreset(it) },
+                                                    onSensitivityChanged = { viewModel.updateSensitivity(it) },
+                                                    onSettingsChanged = { viewModel.updateSettings(it) },
+                                                    isAutoPocketSessionActive = isAutoPocketActive,
+                                                    onPauseTransitSession = { viewModel.pauseTransitSession() },
+                                                    onResumeTransitSession = { viewModel.resumeTransitSession() },
+                                                    onQuitAutoLoop = {
+                                                        triggerBiometricAuth(
+                                                            force = true,
+                                                            onSuccess = { viewModel.quitAutoLoopSession() }
+                                                        )
+                                                    },
+                                                    onNavigateToSettings = {
+                                                        navController.navigate("settings")
+                                                    },
+                                                    onNavigateToProfile = {
+                                                        viewModel.refreshUsageStats()
+                                                        navController.navigate("profile")
+                                                    }
+                                                )
+                                            }
+                                        }
+
+                                        composable("profile") {
+                                            com.kavach.app.ui.screens.ProfileScreen(
+                                                profile = userProfile,
+                                                settings = settings,
+                                                onSaveProfile = { updated ->
+                                                    viewModel.saveUserProfile(updated)
+                                                },
+                                                onSettingsChanged = { updatedSettings ->
+                                                    viewModel.updateSettings(updatedSettings)
+                                                },
+                                                onNavigateBack = { navController.popBackStack() }
+                                            )
+                                        }
+
+                                        composable("settings") {
+                                            SettingsScreen(
+                                                settings = settings,
+                                                onSettingsChanged = { viewModel.updateSettings(it) },
+                                                onTestAlarm = { viewModel.testAlarm() },
+                                                onNavigateBack = { navController.popBackStack() },
+                                                onNavigateToSirenPacks = {
+                                                    navController.navigate("siren_packs")
+                                                },
+                                                onNavigateToUserManual = {
+                                                    navController.navigate("user_manual")
+                                                }
+                                            )
+                                        }
+
+                                        composable("siren_packs") {
+                                            SirenPacksScreen(
+                                                selectedPackId = settings.selectedSirenPackId,
+                                                unlockedPacks = settings.unlockedSirenPacks,
+                                                onPackSelected = { packId ->
+                                                    viewModel.updateSettings(
+                                                        settings.copy(selectedSirenPackId = packId)
+                                                    )
+                                                },
+                                                onWatchAdToUnlock = { pack ->
+                                                    viewModel.unlockSirenPack(pack.id)
+                                                    viewModel.updateSettings(
+                                                        settings.copy(selectedSirenPackId = pack.id)
+                                                    )
+                                                },
+                                                onPreviewSound = { packId ->
+                                                    viewModel.previewSiren(packId)
+                                                },
+                                                onStopPreview = {
+                                                    viewModel.stopPreview()
+                                                },
+                                                onNavigateBack = {
+                                                    viewModel.stopPreview()
+                                                    navController.popBackStack()
+                                                }
+                                            )
+                                        }
+
+                                        composable("user_manual") {
+                                            com.kavach.app.ui.screens.UserManualScreen(
+                                                onNavigateBack = { navController.popBackStack() }
+                                            )
+                                        }
                                     }
                                 }
-
-                                composable("settings") {
-                                    SettingsScreen(
-                                        settings = settings,
-                                        onSettingsChanged = { viewModel.updateSettings(it) },
-                                        onTestAlarm = { viewModel.testAlarm() },
-                                        onNavigateBack = { navController.popBackStack() },
-                                        onNavigateToSirenPacks = {
-                                            navController.navigate("siren_packs")
-                                        },
-                                        onNavigateToUserManual = {
-                                            navController.navigate("user_manual")
-                                        }
-                                    )
-                                }
-
-                                composable("siren_packs") {
-                                    SirenPacksScreen(
-                                        selectedPackId = settings.selectedSirenPackId,
-                                        unlockedPacks = settings.unlockedSirenPacks,
-                                        onPackSelected = { packId ->
-                                            viewModel.updateSettings(
-                                                settings.copy(selectedSirenPackId = packId)
-                                            )
-                                        },
-                                        onWatchAdToUnlock = { pack ->
-                                            viewModel.unlockSirenPack(pack.id)
-                                            viewModel.updateSettings(
-                                                settings.copy(selectedSirenPackId = pack.id)
-                                            )
-                                        },
-                                        onPreviewSound = { packId ->
-                                            viewModel.previewSiren(packId)
-                                        },
-                                        onStopPreview = {
-                                            viewModel.stopPreview()
-                                        },
-                                        onNavigateBack = {
-                                            viewModel.stopPreview()
-                                            navController.popBackStack()
-                                        }
-                                    )
-                                }
-
-                                composable("user_manual") {
-                                    com.kavach.app.ui.screens.UserManualScreen(
-                                        onNavigateBack = { navController.popBackStack() }
-                                    )
-                                }
                             }
-                        }
                     }
                 }
             }

@@ -24,6 +24,27 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     private val preferences = KavachPreferences(application)
     private val sensorFusion = SensorFusion(application)
     val alarmController = AlarmController(application)
+    val profileRepository = UserProfileRepository(application)
+
+    val userProfile: StateFlow<UserProfile> = profileRepository.userProfileFlow
+        .stateIn(
+            viewModelScope,
+            SharingStarted.Eagerly,
+            profileRepository.getInitialProfile()
+        )
+
+    private val _hourlyUsage = MutableStateFlow(profileRepository.getTodayHourlyUsage())
+    val hourlyUsage: StateFlow<Map<Int, Map<DetectionMode, Int>>> = _hourlyUsage.asStateFlow()
+
+    fun saveUserProfile(profile: UserProfile) {
+        viewModelScope.launch {
+            profileRepository.saveProfile(profile)
+        }
+    }
+
+    fun refreshUsageStats() {
+        _hourlyUsage.value = profileRepository.getTodayHourlyUsage()
+    }
 
     // === UI State ===
     private val _shieldState = MutableStateFlow(ShieldState.DISARMED)
@@ -150,6 +171,16 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
             KavachForegroundService.serviceRemainingSeconds.collect { sec ->
                 if (KavachForegroundService.isServiceRunning || sec > 0L) {
                     _remainingSeconds.value = sec
+                    if (_shieldState.value == ShieldState.ARMED) {
+                        val cal = java.util.Calendar.getInstance()
+                        val hour = cal.get(java.util.Calendar.HOUR_OF_DAY)
+                        val mode = settings.value.detectionMode
+                        val cur = _hourlyUsage.value.toMutableMap()
+                        val hourMap = (cur[hour] ?: emptyMap()).toMutableMap()
+                        hourMap[mode] = (hourMap[mode] ?: 0) + 1
+                        cur[hour] = hourMap
+                        _hourlyUsage.value = cur
+                    }
                 }
             }
         }
@@ -204,7 +235,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
      * Synchronously commits shield_was_armed = true to disk in 0ms, starts
      * KavachForegroundService, and lets the 5s countdown & sensors run inside the service.
      */
-    fun armShieldWithDuration(minutes: Int, isNightAutoArm: Boolean = false) {
+    fun armShieldWithDuration(minutes: Int, isNightAutoArm: Boolean = false, overrideMode: DetectionMode? = null) {
         val app = getApplication<Application>()
         val s = settings.value
         val armingSeconds = s.armingCountdownSeconds
@@ -216,9 +247,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         _remainingSeconds.value = minutes * 60L
 
         isTransitSessionPausedByUser = false
-        if (s.detectionMode == DetectionMode.AUTO_POCKET) {
-            _isAutoPocketSessionActive.value = true
-        }
+        _isAutoPocketSessionActive.value = false
         // If user manually initiated ARM SHIELD, clear the night cancel flag so user manual action takes precedence.
         // But if night auto-arm initiated it, do NOT wipe userDisarmedNightWindow!
         if (!isNightAutoArm) {
@@ -231,16 +260,19 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
             _isNightGuardDismissedForTonight.value = false
         }
 
+        val modeToUse = overrideMode ?: if (isNightAutoArm) DetectionMode.SLEEP else s.detectionMode
+
         KavachForegroundService.arm(
             context = app,
             durationMinutes = minutes,
             armingCountdownSeconds = armingSeconds,
             authCountdownSeconds = authSeconds,
-            detectionMode = s.detectionMode,
+            detectionMode = modeToUse,
             sensitivity = s.sensitivityLevel,
             alarmVolumePercent = s.alarmVolumePercent,
             skipCountdown = false
         )
+        refreshUsageStats()
     }
 
     /**
@@ -359,6 +391,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         val app = getApplication<Application>()
         KavachForegroundService.disarm(app)
         markNightScheduleDisarmedByUser()
+        refreshUsageStats()
     }
 
     /**
@@ -389,6 +422,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
 
         // Guard stops at that exact moment without any delay
         _shieldState.value = ShieldState.DISARMED
+        refreshUsageStats()
         _remainingSeconds.value = 0
 
         // Prevent night schedule from re-arming after verification
@@ -406,9 +440,22 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     fun checkAndTriggerNightScheduleNow() {
         val currentSettings = settings.value
         val schedule = currentSettings.nightSchedule
+        val app = getApplication<Application>()
+        val prefs = app.getSharedPreferences("kavach_prefs", Context.MODE_PRIVATE)
+
         if (!schedule.enabled) {
             _isNightWindowActive.value = false
             _isNightGuardDismissedForTonight.value = false
+            userDisarmedNightWindow = false
+            prefs.edit()
+                .putBoolean("night_disarmed_by_user", false)
+                .putString("night_cancelled_window_id", "")
+                .commit()
+            // If night auto-armed or currently armed in SLEEP mode, disarm concurrently!
+            if (prefs.getBoolean("night_auto_armed", false) || (_shieldState.value == ShieldState.ARMED && settings.value.detectionMode == DetectionMode.SLEEP)) {
+                prefs.edit().putBoolean("night_auto_armed", false).commit()
+                disarmShield()
+            }
             return
         }
 
@@ -427,8 +474,6 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
 
         _isNightWindowActive.value = isInWindow
 
-        val app = getApplication<Application>()
-        val prefs = app.getSharedPreferences("kavach_prefs", Context.MODE_PRIVATE)
         val currentWindowId = getCurrentNightWindowId(schedule)
         val cancelledWindowId = prefs.getString("night_cancelled_window_id", "") ?: ""
 
@@ -454,8 +499,8 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                 .putBoolean("night_auto_armed", true)
                 .commit()
 
-            // Arm shield immediately with the remaining minutes (flagged as night auto-arm so it won't clear cancel flags)
-            armShieldWithDuration(remainingMinutes.coerceAtLeast(1), isNightAutoArm = true)
+            // Arm shield immediately with the remaining minutes in SLEEP mode
+            armShieldWithDuration(remainingMinutes.coerceAtLeast(1), isNightAutoArm = true, overrideMode = DetectionMode.SLEEP)
         } else if (!isInWindow) {
             // Reset disarmed flag once current time leaves the window so tomorrow's window will auto-arm
             if (userDisarmedNightWindow || prefs.getBoolean("night_disarmed_by_user", false) || cancelledWindowId.isNotEmpty()) {
@@ -467,6 +512,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                     .commit()
             }
             if (_shieldState.value != ShieldState.DISARMED && prefs.getBoolean("night_auto_armed", false)) {
+                prefs.edit().putBoolean("night_auto_armed", false).commit()
                 disarmShield()
             }
         }
@@ -673,17 +719,15 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
      * Update full settings.
      */
     fun updateSettings(settings: KavachSettings) {
-        if (settings.detectionMode != DetectionMode.AUTO_POCKET) {
-            val app = getApplication<Application>()
-            KavachForegroundService.closeAutoPocketSession(app)
-            _isAutoPocketSessionActive.value = false
-        }
+        val app = getApplication<Application>()
+        KavachForegroundService.closeAutoPocketSession(app)
+        _isAutoPocketSessionActive.value = false
+        val prefs = app.getSharedPreferences("kavach_prefs", Context.MODE_PRIVATE)
         if (settings.nightSchedule.enabled) {
             userDisarmedNightWindow = false
-            val app = getApplication<Application>()
-            app.getSharedPreferences("kavach_prefs", Context.MODE_PRIVATE)
-                .edit()
+            prefs.edit()
                 .putBoolean("night_disarmed_by_user", false)
+                .putString("night_cancelled_window_id", "")
                 .commit()
         }
         viewModelScope.launch {
@@ -695,13 +739,35 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     private fun startTimer() {
         timerJob?.cancel()
         timerJob = viewModelScope.launch {
-            while (_remainingSeconds.value > 0 && _shieldState.value != ShieldState.DISARMED) {
-                delay(1000)
-                _remainingSeconds.value = (_remainingSeconds.value - 1).coerceAtLeast(0)
-            }
-            // Timer expired — auto disarm
-            if (_shieldState.value != ShieldState.DISARMED) {
-                disarmShield()
+            if (settings.value.detectionMode == DetectionMode.TRAVEL) {
+                // In Travel Mode: runs 24x7 indefinitely without timer auto-disarm
+                _remainingSeconds.value = -1L
+                while (_shieldState.value != ShieldState.DISARMED) {
+                    delay(1000)
+                }
+            } else {
+                while (_remainingSeconds.value > 0 && _shieldState.value != ShieldState.DISARMED) {
+                    delay(1000)
+                    _remainingSeconds.value = (_remainingSeconds.value - 1).coerceAtLeast(0)
+                }
+                // Guard timer expired without user authenticating in between — auto switch to 24x7 Travel Mode!
+                if (_shieldState.value != ShieldState.DISARMED) {
+                    val s = settings.value
+                    updateSettings(s.copy(detectionMode = DetectionMode.TRAVEL))
+                    sensorFusion.setDetectionMode(DetectionMode.TRAVEL)
+                    sensorFusion.recalibrate()
+                    _remainingSeconds.value = -1L
+                    KavachForegroundService.arm(
+                        context = getApplication(),
+                        durationMinutes = 0,
+                        armingCountdownSeconds = 0,
+                        authCountdownSeconds = s.decoyCountdownSeconds,
+                        detectionMode = DetectionMode.TRAVEL,
+                        sensitivity = s.sensitivityLevel,
+                        alarmVolumePercent = s.alarmVolumePercent,
+                        skipCountdown = true
+                    )
+                }
             }
         }
     }
@@ -810,26 +876,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
 
     
     private fun registerScreenStateReceiver() {
-        val app = getApplication<Application>()
-        screenReceiver = object : android.content.BroadcastReceiver() {
-            override fun onReceive(context: Context?, intent: Intent?) {
-                if (intent?.action == Intent.ACTION_SCREEN_OFF) {
-                    val currentMode = settings.value.detectionMode
-                    val currentState = _shieldState.value
-                    if (currentMode == DetectionMode.AUTO_POCKET && 
-                        currentState == ShieldState.DISARMED && 
-                        !isTransitSessionPausedByUser) {
-                        // Automatically re-arm for metro commute when screen is locked/turned off
-                        armShieldWithDuration(
-                            minutes = if (settings.value.selectedTimerPreset == TimerPreset.CUSTOM) settings.value.customTimerMinutes else settings.value.selectedTimerPreset.minutes,
-                            isNightAutoArm = false
-                        )
-                    }
-                }
-            }
-        }
-        val filter = android.content.IntentFilter(Intent.ACTION_SCREEN_OFF)
-        app.registerReceiver(screenReceiver, filter)
+        // Auto-loop commuter feature removed - Pocket Guard is manual one-time single-arm
     }
 
     /**

@@ -33,10 +33,10 @@ fun SensorStatusBar(
         modifier = modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        if (detectionMode == DetectionMode.MOTION) {
+        if (detectionMode == DetectionMode.DESK || detectionMode == DetectionMode.SLEEP) {
             SensorIndicator(
-                icon = Icons.Outlined.Vibration,
-                label = "MOTION",
+                icon = if (detectionMode == DetectionMode.SLEEP) Icons.Outlined.Bedtime else Icons.Outlined.Vibration,
+                label = if (detectionMode == DetectionMode.SLEEP) "SLEEP Y-LIFT" else "Y-LIFT",
                 value = String.format("%.1f", sensorReading.motionMagnitude),
                 isActive = isArmed,
                 colors = colors,
@@ -44,8 +44,8 @@ fun SensorStatusBar(
             )
         } else {
             SensorIndicator(
-                icon = Icons.Outlined.Speed,
-                label = "FORCE",
+                icon = if (detectionMode == DetectionMode.TRAVEL) Icons.Outlined.DirectionsCar else Icons.Outlined.Speed,
+                label = if (detectionMode == DetectionMode.TRAVEL) "TRAVEL" else "FORCE",
                 value = String.format("%.1f", sensorReading.motionMagnitude),
                 isActive = isArmed,
                 colors = colors,
