@@ -1,9 +1,22 @@
 package com.kavach.app.ui.screens
 
+import android.app.TimePickerDialog
+import java.util.Calendar
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.net.Uri
+import android.util.Log
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.*
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -12,32 +25,10 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material.icons.outlined.*
+import androidx.compose.material.icons.automirrored.outlined.ExitToApp
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.ZoomIn
-import androidx.compose.material.icons.outlined.Bedtime
-import androidx.compose.material.icons.outlined.AccessTime
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectTransformGestures
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.PickVisualMediaRequest
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.core.content.FileProvider
-import android.net.Uri
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.util.Log
-import android.app.TimePickerDialog
-import com.kavach.app.data.KavachSettings
-import com.kavach.app.data.NightSchedule
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -47,13 +38,23 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.core.content.FileProvider
 import com.kavach.app.data.DetectionMode
+import com.kavach.app.data.KavachSettings
+import com.kavach.app.data.SosContact
 import com.kavach.app.data.UserProfile
 import com.kavach.app.ui.theme.*
 
@@ -64,6 +65,7 @@ fun ProfileScreen(
     settings: KavachSettings = KavachSettings(),
     onSaveProfile: (UserProfile) -> Unit,
     onSettingsChanged: (KavachSettings) -> Unit = {},
+    onSignOut: () -> Unit = {},
     onNavigateBack: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
@@ -71,16 +73,41 @@ fun ProfileScreen(
     val scrollState = rememberScrollState()
 
     var fullName by remember(profile.fullName) { mutableStateOf(profile.fullName) }
-    var email by remember(profile.email) { mutableStateOf(profile.email) }
     var phone by remember(profile.phoneNumber) { mutableStateOf(profile.phoneNumber) }
-    var emergencyName by remember(profile.emergencyContactName) { mutableStateOf(profile.emergencyContactName) }
-    var emergencyPhone by remember(profile.emergencyContactPhone) { mutableStateOf(profile.emergencyContactPhone) }
-    var bloodGroup by remember(profile.bloodGroup) { mutableStateOf(profile.bloodGroup) }
-    var address by remember(profile.homeAddress) { mutableStateOf(profile.homeAddress) }
-    var notes by remember(profile.notes) { mutableStateOf(profile.notes) }
     var profilePicturePath by remember(profile.profilePicturePath) { mutableStateOf(profile.profilePicturePath) }
 
+    // SOS Contacts State
+    var sosContacts by remember(profile.sosContacts) {
+        val initialList = if (profile.sosContacts.isNotEmpty()) {
+            profile.sosContacts
+        } else if (profile.emergencyContactName.isNotBlank() || profile.emergencyContactPhone.isNotBlank()) {
+            listOf(SosContact(name = profile.emergencyContactName, phone = profile.emergencyContactPhone))
+        } else {
+            listOf(SosContact(name = "", phone = ""))
+        }
+        mutableStateOf(initialList)
+    }
+
+    // Sleep Schedule State
+    var sleepScheduleSelection by remember(profile.sleepScheduleAnswer) {
+        val defaultAns = if (profile.sleepScheduleAnswer.isNotBlank()) {
+            profile.sleepScheduleAnswer
+        } else if (settings.nightSchedule.enabled) {
+            "Yes"
+        } else {
+            ""
+        }
+        mutableStateOf(defaultAns)
+    }
+    var sleepStartTime by remember(profile.sleepScheduleStart) {
+        mutableStateOf(if (profile.sleepScheduleStart.isNotBlank()) profile.sleepScheduleStart else "11:00 PM")
+    }
+    var sleepEndTime by remember(profile.sleepScheduleEnd) {
+        mutableStateOf(if (profile.sleepScheduleEnd.isNotBlank()) profile.sleepScheduleEnd else "07:00 AM")
+    }
+
     var isSavedSnackbarVisible by remember { mutableStateOf(false) }
+    var showSignOutDialog by remember { mutableStateOf(false) }
     var showPhotoOptionsDialog by remember { mutableStateOf(false) }
     var showZoomOverlay by remember { mutableStateOf(false) }
     var avatarBitmapKey by remember { mutableLongStateOf(System.currentTimeMillis()) }
@@ -119,16 +146,18 @@ fun ProfileScreen(
                 }
                 profilePicturePath = avatarFile.absolutePath
                 avatarBitmapKey = System.currentTimeMillis()
+                val primaryName = sosContacts.firstOrNull()?.name ?: ""
+                val primaryPhone = sosContacts.firstOrNull()?.phone ?: ""
                 onSaveProfile(
                     profile.copy(
                         fullName = fullName,
-                        email = email,
                         phoneNumber = phone,
-                        emergencyContactName = emergencyName,
-                        emergencyContactPhone = emergencyPhone,
-                        bloodGroup = bloodGroup,
-                        homeAddress = address,
-                        notes = notes,
+                        emergencyContactName = primaryName,
+                        emergencyContactPhone = primaryPhone,
+                        sosContacts = sosContacts,
+                        sleepScheduleAnswer = sleepScheduleSelection,
+                        sleepScheduleStart = sleepStartTime,
+                        sleepScheduleEnd = sleepEndTime,
                         profilePicturePath = avatarFile.absolutePath
                     )
                 )
@@ -220,29 +249,21 @@ fun ProfileScreen(
         } catch (_: Exception) {}
         profilePicturePath = ""
         avatarBitmapKey = System.currentTimeMillis()
+        val primaryName = sosContacts.firstOrNull()?.name ?: ""
+        val primaryPhone = sosContacts.firstOrNull()?.phone ?: ""
         onSaveProfile(
             profile.copy(
                 fullName = fullName,
-                email = email,
                 phoneNumber = phone,
-                emergencyContactName = emergencyName,
-                emergencyContactPhone = emergencyPhone,
-                bloodGroup = bloodGroup,
-                homeAddress = address,
-                notes = notes,
+                emergencyContactName = primaryName,
+                emergencyContactPhone = primaryPhone,
+                sosContacts = sosContacts,
+                sleepScheduleAnswer = sleepScheduleSelection,
+                sleepScheduleStart = sleepStartTime,
+                sleepScheduleEnd = sleepEndTime,
                 profilePicturePath = ""
             )
         )
-    }
-
-    fun formatScheduleTime(hour: Int, minute: Int): String {
-        val amPm = if (hour >= 12) "PM" else "AM"
-        val h = when {
-            hour == 0 -> 12
-            hour > 12 -> hour - 12
-            else -> hour
-        }
-        return String.format("%02d:%02d %s", h, minute, amPm)
     }
 
     val activeAccent = if (colors.isDark) KavachGold else Color(0xFF00758F)
@@ -352,19 +373,22 @@ fun ProfileScreen(
                     fontSize = 17.sp,
                     color = colors.textPrimary
                 )
-                Text(
-                    text = if (email.isNotBlank()) email else "Profile configured for backend sync",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = colors.textSecondary
-                )
+                if (phone.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = phone,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = colors.textSecondary
+                    )
+                }
             }
         }
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // Section: Personal Details
+        // SECTION 1: PERSONAL DETAILS (Only Name and Phone Number)
         Text(
-            text = "PERSONAL & EMERGENCY DETAILS",
+            text = "PERSONAL DETAILS",
             fontFamily = OrbitronFamily,
             fontWeight = FontWeight.Bold,
             fontSize = 12.sp,
@@ -383,16 +407,6 @@ fun ProfileScreen(
         Spacer(modifier = Modifier.height(10.dp))
 
         ProfileTextField(
-            label = "Email Address",
-            value = email,
-            onValueChange = { email = it },
-            icon = Icons.Outlined.Email,
-            keyboardType = KeyboardType.Email,
-            colors = colors
-        )
-        Spacer(modifier = Modifier.height(10.dp))
-
-        ProfileTextField(
             label = "Phone Number",
             value = phone,
             onValueChange = { phone = it },
@@ -400,71 +414,387 @@ fun ProfileScreen(
             keyboardType = KeyboardType.Phone,
             colors = colors
         )
-        Spacer(modifier = Modifier.height(10.dp))
 
-        ProfileTextField(
-            label = "Emergency Contact Person",
-            value = emergencyName,
-            onValueChange = { emergencyName = it },
-            icon = Icons.Outlined.ContactEmergency,
-            colors = colors
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // SECTION 2: SOS CONTACTS (Name left, Phone right, small green plus button underneath)
+        Text(
+            text = "SOS EMERGENCY CONTACTS",
+            fontFamily = OrbitronFamily,
+            fontWeight = FontWeight.Bold,
+            fontSize = 12.sp,
+            color = colors.textSecondary,
+            letterSpacing = 1.sp
         )
-        Spacer(modifier = Modifier.height(10.dp))
-
-        ProfileTextField(
-            label = "Emergency Contact Phone",
-            value = emergencyPhone,
-            onValueChange = { emergencyPhone = it },
-            icon = Icons.Outlined.PhoneCallback,
-            keyboardType = KeyboardType.Phone,
-            colors = colors
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = "Distress contacts alerted during an intrusion or alarm trigger",
+            fontSize = 12.sp,
+            color = colors.textMuted
         )
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
-        ProfileTextField(
-            label = "Blood Group (Optional)",
-            value = bloodGroup,
-            onValueChange = { bloodGroup = it },
-            icon = Icons.Outlined.LocalHospital,
-            colors = colors
+        sosContacts.forEachIndexed { index, contact ->
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Contact Name (Left)
+                    OutlinedTextField(
+                        value = contact.name,
+                        onValueChange = { newName ->
+                            val updated = sosContacts.toMutableList()
+                            updated[index] = contact.copy(name = newName)
+                            sosContacts = updated
+                        },
+                        label = { Text("Name", fontSize = 11.sp, color = colors.textSecondary) },
+                        placeholder = { Text("Contact Name", fontSize = 12.sp, color = colors.textMuted) },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = activeAccent,
+                            unfocusedBorderColor = colors.cardBorder,
+                            focusedTextColor = colors.textPrimary,
+                            unfocusedTextColor = colors.textPrimary,
+                            focusedContainerColor = colors.background.copy(alpha = 0.5f),
+                            unfocusedContainerColor = colors.background.copy(alpha = 0.3f)
+                        )
+                    )
+
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    // Phone Number (Right)
+                    OutlinedTextField(
+                        value = contact.phone,
+                        onValueChange = { newPhone ->
+                            val updated = sosContacts.toMutableList()
+                            updated[index] = contact.copy(phone = newPhone)
+                            sosContacts = updated
+                        },
+                        label = { Text("Phone", fontSize = 11.sp, color = colors.textSecondary) },
+                        placeholder = { Text("Phone Number", fontSize = 12.sp, color = colors.textMuted) },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = activeAccent,
+                            unfocusedBorderColor = colors.cardBorder,
+                            focusedTextColor = colors.textPrimary,
+                            unfocusedTextColor = colors.textPrimary,
+                            focusedContainerColor = colors.background.copy(alpha = 0.5f),
+                            unfocusedContainerColor = colors.background.copy(alpha = 0.3f)
+                        )
+                    )
+
+                    if (sosContacts.size > 1) {
+                        IconButton(
+                            onClick = {
+                                val updated = sosContacts.toMutableList()
+                                updated.removeAt(index)
+                                sosContacts = updated
+                            },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Close,
+                                contentDescription = "Remove contact",
+                                tint = CyberRed,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        // Small green plus button underneath the contact
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Button(
+                onClick = {
+                    val updated = sosContacts.toMutableList()
+                    updated.add(SosContact(name = "", phone = ""))
+                    sosContacts = updated
+                },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = CyberGreen,
+                    contentColor = Color.Black
+                ),
+                shape = CircleShape,
+                contentPadding = PaddingValues(0.dp),
+                modifier = Modifier.size(32.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Add,
+                    contentDescription = "Add Contact",
+                    tint = Color.Black,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.width(10.dp))
+
+            Text(
+                text = "Add another contact",
+                fontSize = 12.sp,
+                color = CyberGreen,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.clickable {
+                    val updated = sosContacts.toMutableList()
+                    updated.add(SosContact(name = "", phone = ""))
+                    sosContacts = updated
+                }
+            )
+        }
+
+        Spacer(modifier = Modifier.height(28.dp))
+
+        // SECTION 3: SLEEP SCHEDULE
+        Text(
+            text = "SLEEP SCHEDULE",
+            fontFamily = OrbitronFamily,
+            fontWeight = FontWeight.Bold,
+            fontSize = 12.sp,
+            color = if (colors.isDark) KavachGold else CyberCyan,
+            letterSpacing = 1.sp
         )
-        Spacer(modifier = Modifier.height(10.dp))
-
-        ProfileTextField(
-            label = "Home Address / Emergency Locality",
-            value = address,
-            onValueChange = { address = it },
-            icon = Icons.Outlined.Home,
-            colors = colors
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = "Do you have a sleep schedule?",
+            fontFamily = OrbitronFamily,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 14.sp,
+            color = colors.textPrimary
         )
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(14.dp))
 
-        ProfileTextField(
-            label = "Medical / Security Notes",
-            value = notes,
-            onValueChange = { notes = it },
-            icon = Icons.Outlined.Notes,
-            colors = colors
-        )
+        if (sleepScheduleSelection == "Yes") {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .border(1.5.dp, CyberGreen, RoundedCornerShape(12.dp)),
+                colors = CardDefaults.cardColors(containerColor = CyberGreen.copy(alpha = 0.12f))
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Outlined.CheckCircle,
+                            contentDescription = null,
+                            tint = CyberGreen,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = "Yes, I have a schedule",
+                            fontFamily = OrbitronFamily,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                            color = CyberGreen
+                        )
+                    }
 
-        Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = "Change",
+                        fontSize = 11.sp,
+                        color = colors.textMuted,
+                        modifier = Modifier.clickable { sleepScheduleSelection = "" }
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            Text(
+                text = "Tap on Start or End time to open the real clock dial:",
+                fontSize = 12.sp,
+                color = colors.textSecondary
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            val parsedStart = parseScheduleTime(sleepStartTime, 23, 0)
+            val parsedEnd = parseScheduleTime(sleepEndTime, 7, 0)
+
+            // Start Time Real Clock Card
+            ProfileRealClockCard(
+                label = "BEDTIME (START)",
+                time = sleepStartTime,
+                icon = Icons.Outlined.Bedtime,
+                accentColor = Color(0xFFA855F7),
+                colors = colors,
+                onClick = {
+                    TimePickerDialog(
+                        context,
+                        { _, h, m ->
+                            sleepStartTime = formatScheduleTime(h, m)
+                        },
+                        parsedStart.first,
+                        parsedStart.second,
+                        false
+                    ).show()
+                }
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // End Time Real Clock Card
+            ProfileRealClockCard(
+                label = "WAKING (END)",
+                time = sleepEndTime,
+                icon = Icons.Outlined.WbSunny,
+                accentColor = CyberAmber,
+                colors = colors,
+                onClick = {
+                    TimePickerDialog(
+                        context,
+                        { _, h, m ->
+                            sleepEndTime = formatScheduleTime(h, m)
+                        },
+                        parsedEnd.first,
+                        parsedEnd.second,
+                        false
+                    ).show()
+                }
+            )
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Live Coverage Indicator
+            val (isInRange, remainingTime) = getSleepRangeStatus(parsedStart, parsedEnd)
+            if (isInRange) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.2.dp, CyberGreen),
+                    colors = CardDefaults.cardColors(containerColor = CyberGreen.copy(alpha = 0.12f))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Bolt,
+                            contentDescription = null,
+                            tint = CyberGreen,
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                text = "CURRENT TIME IS WITHIN RANGE",
+                                fontFamily = OrbitronFamily,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 11.sp,
+                                color = CyberGreen
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "Saving will activate Sleep Detection Mode immediately for the remaining ${remainingTime.first}h ${remainingTime.second}m!",
+                                fontSize = 11.5.sp,
+                                color = colors.textPrimary,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                }
+            } else {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, colors.cardBorder),
+                    colors = CardDefaults.cardColors(containerColor = colors.background.copy(alpha = 0.4f))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Bedtime,
+                            contentDescription = null,
+                            tint = Color(0xFFA855F7),
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = "Kavach will automatically activate Sleep Mode daily from $sleepStartTime until $sleepEndTime.",
+                            fontSize = 11.5.sp,
+                            color = colors.textSecondary
+                        )
+                    }
+                }
+            }
+        } else {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                ProfileScheduleOptionRow(
+                    label = "Yes",
+                    subLabel = "Set regular bed & waking hours",
+                    isSelected = sleepScheduleSelection == "Yes",
+                    accentColor = CyberGreen,
+                    colors = colors,
+                    onClick = { sleepScheduleSelection = "Yes" }
+                )
+
+                ProfileScheduleOptionRow(
+                    label = "Maybe",
+                    subLabel = "Irregular or shift-based schedule",
+                    isSelected = sleepScheduleSelection == "Maybe",
+                    accentColor = CyberAmber,
+                    colors = colors,
+                    onClick = { sleepScheduleSelection = "Maybe" }
+                )
+
+                ProfileScheduleOptionRow(
+                    label = "No",
+                    subLabel = "Arm protection manually when needed",
+                    isSelected = sleepScheduleSelection == "No",
+                    accentColor = colors.textSecondary,
+                    colors = colors,
+                    onClick = { sleepScheduleSelection = "No" }
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
 
         // Save Button
         Button(
             onClick = {
-                onSaveProfile(
-                    UserProfile(
-                        fullName = fullName,
-                        email = email,
-                        phoneNumber = phone,
-                        emergencyContactName = emergencyName,
-                        emergencyContactPhone = emergencyPhone,
-                        bloodGroup = bloodGroup,
-                        homeAddress = address,
-                        notes = notes,
-                        profilePicturePath = profilePicturePath
-                    )
+                val cleanedContacts = sosContacts.filter { it.name.isNotBlank() || it.phone.isNotBlank() }
+                val primaryName = cleanedContacts.firstOrNull()?.name ?: ""
+                val primaryPhone = cleanedContacts.firstOrNull()?.phone ?: ""
+                val updatedProfile = profile.copy(
+                    fullName = fullName,
+                    phoneNumber = phone,
+                    emergencyContactName = primaryName,
+                    emergencyContactPhone = primaryPhone,
+                    sosContacts = cleanedContacts,
+                    sleepScheduleAnswer = sleepScheduleSelection,
+                    sleepScheduleStart = if (sleepScheduleSelection == "Yes") sleepStartTime else "",
+                    sleepScheduleEnd = if (sleepScheduleSelection == "Yes") sleepEndTime else "",
+                    profilePicturePath = profilePicturePath
                 )
+                onSaveProfile(updatedProfile)
                 isSavedSnackbarVisible = true
             },
             modifier = Modifier
@@ -489,7 +819,7 @@ fun ProfileScreen(
         if (isSavedSnackbarVisible) {
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = "✓ Profile details updated and queued for backend sync",
+                text = "✓ Profile details updated successfully",
                 color = CyberGreen,
                 fontSize = 12.sp,
                 textAlign = TextAlign.Center,
@@ -497,205 +827,87 @@ fun ProfileScreen(
             )
         }
 
-        Spacer(modifier = Modifier.height(28.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
-        // Section: Automatic Sleep Guard Schedule
-        Text(
-            text = "AUTOMATIC SLEEP GUARD SCHEDULE",
-            fontFamily = OrbitronFamily,
-            fontWeight = FontWeight.Bold,
-            fontSize = 12.sp,
-            color = if (colors.isDark) KavachGold else CyberCyan
-        )
-
-        Spacer(modifier = Modifier.height(10.dp))
-
-        Card(
+        // Sign Out Button
+        OutlinedButton(
+            onClick = { showSignOutDialog = true },
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(16.dp))
-                .border(1.dp, colors.cardBorder, RoundedCornerShape(16.dp)),
-            colors = CardDefaults.cardColors(containerColor = colors.card)
+                .height(48.dp),
+            shape = RoundedCornerShape(12.dp),
+            border = androidx.compose.foundation.BorderStroke(1.2.dp, CyberRed.copy(alpha = 0.8f)),
+            colors = ButtonDefaults.outlinedButtonColors(
+                contentColor = CyberRed
+            )
         ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                // Header Row with Switch
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .size(36.dp)
-                                .clip(CircleShape)
-                                .background(Color(0xFFA855F7).copy(alpha = 0.15f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Outlined.Bedtime,
-                                contentDescription = null,
-                                tint = Color(0xFFA855F7),
-                                modifier = Modifier.size(20.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Column {
-                            Text(
-                                text = "Auto Sleep Mode",
-                                fontFamily = OrbitronFamily,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 14.sp,
-                                color = colors.textPrimary
-                            )
-                            Text(
-                                text = if (settings.nightSchedule.enabled) "Active from ${formatScheduleTime(settings.nightSchedule.startHour, settings.nightSchedule.startMinute)} to ${formatScheduleTime(settings.nightSchedule.endHour, settings.nightSchedule.endMinute)}" else "Disabled",
-                                fontSize = 11.5.sp,
-                                color = colors.textSecondary
-                            )
-                        }
-                    }
-
-                    Switch(
-                        checked = settings.nightSchedule.enabled,
-                        onCheckedChange = { isEnabled ->
-                            onSettingsChanged(
-                                settings.copy(
-                                    nightSchedule = settings.nightSchedule.copy(enabled = isEnabled)
-                                )
-                            )
-                        },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = Color.Black,
-                            checkedTrackColor = Color(0xFFA855F7)
-                        )
-                    )
-                }
-
-                if (settings.nightSchedule.enabled) {
-                    Spacer(modifier = Modifier.height(14.dp))
-                    HorizontalDivider(color = colors.cardBorder.copy(alpha = 0.5f))
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    // Start Time (X Time) & End Time (Y Time) Picker Selectors
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        // Start Time Selector
-                        Column(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(colors.background.copy(alpha = 0.6f))
-                                .border(1.dp, colors.cardBorder, RoundedCornerShape(12.dp))
-                                .clickable {
-                                    TimePickerDialog(
-                                        context,
-                                        { _, hour, minute ->
-                                            onSettingsChanged(
-                                                settings.copy(
-                                                    nightSchedule = settings.nightSchedule.copy(
-                                                        startHour = hour,
-                                                        startMinute = minute
-                                                    )
-                                                )
-                                            )
-                                        },
-                                        settings.nightSchedule.startHour,
-                                        settings.nightSchedule.startMinute,
-                                        false
-                                    ).show()
-                                }
-                                .padding(12.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Text(
-                                text = "START TIME (X)",
-                                fontSize = 10.sp,
-                                color = colors.textMuted,
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = OrbitronFamily
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Outlined.AccessTime, contentDescription = null, tint = Color(0xFFA855F7), modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = formatScheduleTime(settings.nightSchedule.startHour, settings.nightSchedule.startMinute),
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = colors.textPrimary,
-                                    fontFamily = RajdhaniFamily
-                                )
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.width(12.dp))
-
-                        // End Time Selector
-                        Column(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(colors.background.copy(alpha = 0.6f))
-                                .border(1.dp, colors.cardBorder, RoundedCornerShape(12.dp))
-                                .clickable {
-                                    TimePickerDialog(
-                                        context,
-                                        { _, hour, minute ->
-                                            onSettingsChanged(
-                                                settings.copy(
-                                                    nightSchedule = settings.nightSchedule.copy(
-                                                        endHour = hour,
-                                                        endMinute = minute
-                                                    )
-                                                )
-                                            )
-                                        },
-                                        settings.nightSchedule.endHour,
-                                        settings.nightSchedule.endMinute,
-                                        false
-                                    ).show()
-                                }
-                                .padding(12.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Text(
-                                text = "END TIME (Y)",
-                                fontSize = 10.sp,
-                                color = colors.textMuted,
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = OrbitronFamily
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Outlined.AccessTime, contentDescription = null, tint = Color(0xFFA855F7), modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = formatScheduleTime(settings.nightSchedule.endHour, settings.nightSchedule.endMinute),
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = colors.textPrimary,
-                                    fontFamily = RajdhaniFamily
-                                )
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    Text(
-                        text = "🌙 At the start time, Kavach automatically arms in Sleep Mode with nocturnal bed-bounce filtering. At the end time, it automatically disarms.",
-                        fontSize = 11.5.sp,
-                        color = colors.textMuted,
-                        lineHeight = 16.sp
-                    )
-                }
-            }
+            Icon(
+                imageVector = Icons.AutoMirrored.Outlined.ExitToApp,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+                tint = CyberRed
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = "SIGN OUT OF KAVACH",
+                fontFamily = OrbitronFamily,
+                fontWeight = FontWeight.Bold,
+                fontSize = 12.sp,
+                color = CyberRed
+            )
         }
 
         Spacer(modifier = Modifier.height(40.dp))
+    }
+
+    
+    // Sign Out Confirmation Dialog
+    if (showSignOutDialog) {
+        AlertDialog(
+            onDismissRequest = { showSignOutDialog = false },
+            containerColor = colors.card,
+            title = {
+                Text(
+                    text = "SIGN OUT",
+                    fontFamily = OrbitronFamily,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp,
+                    color = colors.textPrimary
+                )
+            },
+            text = {
+                Text(
+                    text = "Are you sure you want to sign out? You will need your registered phone number and password to log back into Kavach on this or any replacement device.",
+                    fontSize = 12.5.sp,
+                    color = colors.textSecondary,
+                    lineHeight = 18.sp
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showSignOutDialog = false
+                        onSignOut()
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = CyberRed,
+                        contentColor = Color.White
+                    ),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text(
+                        text = "SIGN OUT",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showSignOutDialog = false }) {
+                    Text("CANCEL", color = colors.textMuted)
+                }
+            }
+        )
     }
 
     // Photo Action Dialog (Camera vs Gallery vs View vs Remove)
@@ -945,6 +1157,69 @@ fun ProfileScreen(
 }
 
 @Composable
+private fun ProfileScheduleOptionRow(
+    label: String,
+    subLabel: String,
+    isSelected: Boolean,
+    accentColor: Color,
+    colors: KavachColors,
+    onClick: () -> Unit
+) {
+    val borderColor = if (isSelected) accentColor else colors.cardBorder
+    val bgColor = if (isSelected) accentColor.copy(alpha = 0.12f) else colors.background.copy(alpha = 0.4f)
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .border(1.2.dp, borderColor, RoundedCornerShape(12.dp))
+            .clickable { onClick() },
+        colors = CardDefaults.cardColors(containerColor = bgColor)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(20.dp)
+                    .clip(CircleShape)
+                    .border(1.5.dp, if (isSelected) accentColor else colors.textMuted, CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                if (isSelected) {
+                    Box(
+                        modifier = Modifier
+                            .size(10.dp)
+                            .clip(CircleShape)
+                            .background(accentColor)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.width(14.dp))
+
+            Column {
+                Text(
+                    text = label,
+                    fontFamily = OrbitronFamily,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp,
+                    color = if (isSelected) accentColor else colors.textPrimary
+                )
+                Text(
+                    text = subLabel,
+                    fontSize = 11.5.sp,
+                    color = colors.textSecondary
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun ProfileTextField(
     label: String,
     value: String,
@@ -994,19 +1269,10 @@ internal fun DailyGuardUsageGraph(
     val pocketColor = Color(0xFF10B981) // Green
 
     val currentHour = remember { java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY) }
-    // Default to 24h view if current hour is outside 9 AM - 9 PM so live activity is never cut off
     var view24h by remember { mutableStateOf(currentHour !in 9..21) }
 
     val hours = if (view24h) (0..23).toList() else (9..21).toList()
-    val maxSeconds = 3600f // 1 hour = 3600s
-
-    // Calculate total protection seconds today
-    val totalSecondsToday = remember(hourlyUsage) {
-        hourlyUsage.values.flatMap { it.values }.sum()
-    }
-    val totalMins = totalSecondsToday / 60
-    val totalSecsRemainder = totalSecondsToday % 60
-    val totalTimeText = if (totalMins > 0) "${totalMins}m ${totalSecsRemainder}s" else "${totalSecsRemainder}s"
+    val maxSeconds = 3600f
 
     Card(
         modifier = Modifier
@@ -1016,133 +1282,78 @@ internal fun DailyGuardUsageGraph(
         colors = CardDefaults.cardColors(containerColor = colors.card)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
-            // Header with Live Protection Status & View Mode Toggle
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (isShieldArmed) {
-                            Box(
-                                modifier = Modifier
-                                    .size(8.dp)
-                                    .clip(CircleShape)
-                                    .background(pocketColor)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "LIVE RECORDING",
-                                fontFamily = OrbitronFamily,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 11.sp,
-                                color = pocketColor
-                            )
-                        } else {
-                            Text(
-                                text = "TODAY'S ACTIVITY",
-                                fontFamily = OrbitronFamily,
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 11.sp,
-                                color = colors.textPrimary
-                            )
-                        }
-                    }
-                    Text(
-                        text = "Total Protected: $totalTimeText",
-                        fontSize = 12.sp,
-                        color = colors.textSecondary,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
+                Text(
+                    text = "GUARD ACTIVITY (TODAY)",
+                    fontFamily = OrbitronFamily,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 12.sp,
+                    color = colors.textSecondary
+                )
 
-                // Compact View Selector: 24H vs 9A-9P
-                Row(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(colors.background.copy(alpha = 0.6f))
-                        .padding(2.dp)
+                TextButton(
+                    onClick = { view24h = !view24h },
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(if (view24h) (if (colors.isDark) KavachGold else CyberCyan).copy(alpha = 0.25f) else Color.Transparent)
-                            .clickable { view24h = true }
-                            .padding(horizontal = 8.dp, vertical = 4.dp)
-                    ) {
-                        Text(
-                            text = "24H",
-                            fontSize = 10.sp,
-                            fontWeight = if (view24h) FontWeight.Bold else FontWeight.Normal,
-                            color = if (view24h) (if (colors.isDark) KavachGold else CyberCyan) else colors.textMuted
-                        )
-                    }
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(if (!view24h) (if (colors.isDark) KavachGold else CyberCyan).copy(alpha = 0.25f) else Color.Transparent)
-                            .clickable { view24h = false }
-                            .padding(horizontal = 8.dp, vertical = 4.dp)
-                    ) {
-                        Text(
-                            text = "9A-9P",
-                            fontSize = 10.sp,
-                            fontWeight = if (!view24h) FontWeight.Bold else FontWeight.Normal,
-                            color = if (!view24h) (if (colors.isDark) KavachGold else CyberCyan) else colors.textMuted
-                        )
-                    }
+                    Text(
+                        text = if (view24h) "Show 9A-9P" else "Show 24H",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (colors.isDark) KavachGold else CyberCyan
+                    )
                 }
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
-            // Mode Legend
+            // Legend
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                LegendItem(label = "Travel", color = travelColor)
-                LegendItem(label = "Sleep", color = sleepColor)
-                LegendItem(label = "Desk", color = deskColor)
-                LegendItem(label = "Pocket", color = pocketColor)
+                LegendItem("Pocket", pocketColor)
+                LegendItem("Desk", deskColor)
+                LegendItem("Sleep", sleepColor)
+                LegendItem("Transit", travelColor)
             }
 
             Spacer(modifier = Modifier.height(14.dp))
 
-            // Chart Area with Y-Axis on left and Canvas on right
+            // Chart area with explicit Y-axis labels
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(160.dp),
-                verticalAlignment = Alignment.CenterVertically
+                    .height(120.dp)
             ) {
-                // Y-Axis Column (60m, 45m, 30m, 15m, 0m)
+                // Left Y-Axis Labels
                 Column(
                     modifier = Modifier
-                        .fillMaxHeight()
                         .width(32.dp)
-                        .padding(bottom = 4.dp),
+                        .fillMaxHeight(),
                     verticalArrangement = Arrangement.SpaceBetween,
                     horizontalAlignment = Alignment.End
                 ) {
-                    Text("60m", fontSize = 8.5.sp, color = colors.textMuted, fontFamily = RajdhaniFamily, fontWeight = FontWeight.Bold)
-                    Text("45m", fontSize = 8.5.sp, color = colors.textMuted, fontFamily = RajdhaniFamily, fontWeight = FontWeight.Bold)
-                    Text("30m", fontSize = 8.5.sp, color = colors.textMuted, fontFamily = RajdhaniFamily, fontWeight = FontWeight.Bold)
-                    Text("15m", fontSize = 8.5.sp, color = colors.textMuted, fontFamily = RajdhaniFamily, fontWeight = FontWeight.Bold)
-                    Text("0m", fontSize = 8.5.sp, color = colors.textMuted, fontFamily = RajdhaniFamily, fontWeight = FontWeight.Bold)
+                    Text("60m", fontSize = 9.sp, color = colors.textMuted, fontFamily = RajdhaniFamily)
+                    Text("45m", fontSize = 9.sp, color = colors.textMuted.copy(alpha = 0.6f), fontFamily = RajdhaniFamily)
+                    Text("30m", fontSize = 9.sp, color = colors.textMuted, fontFamily = RajdhaniFamily)
+                    Text("15m", fontSize = 9.sp, color = colors.textMuted.copy(alpha = 0.6f), fontFamily = RajdhaniFamily)
+                    Text("0m", fontSize = 9.sp, color = colors.textMuted, fontFamily = RajdhaniFamily)
                 }
 
                 Spacer(modifier = Modifier.width(6.dp))
 
-                // Canvas Bar Chart
+                // Chart Canvas
                 Canvas(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxHeight()
                 ) {
                     val w = size.width
-                    val h = size.height - 4f // reserve 4px at bottom for crisp baseline
+                    val h = size.height
                     val slotWidth = w / hours.size
 
                     // Draw 60m top guide line
@@ -1201,7 +1412,6 @@ internal fun DailyGuardUsageGraph(
                         if (totalSecs > 0) {
                             var currentY = h
 
-                            // Stacked bars: Pocket, Desk, Sleep, Travel
                             val segments = listOf(
                                 pocketSecs to pocketColor,
                                 deskSecs to deskColor,
@@ -1212,7 +1422,6 @@ internal fun DailyGuardUsageGraph(
                             segments.forEach { (secs, color) ->
                                 if (secs > 0) {
                                     val scaledHeight = (secs.toFloat() / maxSeconds) * h
-                                    // Minimum 8px height so even 1-2 seconds of live testing are immediately visible
                                     val segmentHeight = scaledHeight.coerceAtLeast(8f)
                                     drawRect(
                                         color = color,
@@ -1223,7 +1432,6 @@ internal fun DailyGuardUsageGraph(
                                 }
                             }
 
-                            // If this hour is current hour and armed, draw a live pulse indicator above the bar
                             if (hour == currentHour && isShieldArmed) {
                                 drawCircle(
                                     color = pocketColor,
@@ -1232,7 +1440,6 @@ internal fun DailyGuardUsageGraph(
                                 )
                             }
                         } else {
-                            // Subtle empty dot at baseline
                             val isCurrentHour = (hour == currentHour)
                             drawCircle(
                                 color = if (isCurrentHour && isShieldArmed) pocketColor else Color.Gray.copy(alpha = 0.25f),
@@ -1246,7 +1453,6 @@ internal fun DailyGuardUsageGraph(
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // X-Axis Hour Labels — strictly below the chart with left offset matching Y-axis
             if (view24h) {
                 Row(
                     modifier = Modifier
@@ -1297,3 +1503,153 @@ private fun LegendItem(label: String, color: Color) {
     }
 }
 
+@Composable
+private fun ProfileRealClockCard(
+    label: String,
+    time: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    accentColor: Color,
+    colors: KavachColors,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .border(1.2.dp, colors.cardBorder, RoundedCornerShape(14.dp))
+            .clickable { onClick() },
+        colors = CardDefaults.cardColors(containerColor = colors.background.copy(alpha = 0.6f))
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(accentColor.copy(alpha = 0.15f))
+                        .border(1.dp, accentColor.copy(alpha = 0.4f), CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        tint = accentColor,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(12.dp))
+
+                Column {
+                    Text(
+                        text = label,
+                        fontFamily = OrbitronFamily,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 10.sp,
+                        color = colors.textMuted,
+                        letterSpacing = 1.sp
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = time,
+                        fontFamily = RajdhaniFamily,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 20.sp,
+                        color = colors.textPrimary,
+                        letterSpacing = 1.sp
+                    )
+                }
+            }
+
+            Surface(
+                color = accentColor.copy(alpha = 0.12f),
+                shape = RoundedCornerShape(8.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, accentColor.copy(alpha = 0.35f))
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.AccessTime,
+                        contentDescription = null,
+                        tint = accentColor,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text(
+                        text = "CHOOSE",
+                        fontFamily = OrbitronFamily,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 10.sp,
+                        color = accentColor
+                    )
+                }
+            }
+        }
+    }
+}
+
+private fun formatScheduleTime(hour: Int, minute: Int): String {
+    val amPm = if (hour >= 12) "PM" else "AM"
+    val h = when {
+        hour == 0 -> 12
+        hour > 12 -> hour - 12
+        else -> hour
+    }
+    return String.format("%02d:%02d %s", h, minute, amPm)
+}
+
+private fun parseScheduleTime(timeStr: String, fallbackHour: Int, fallbackMinute: Int): Pair<Int, Int> {
+    return try {
+        val trimmed = timeStr.trim().uppercase()
+        val isPm = trimmed.contains("PM")
+        val isAm = trimmed.contains("AM")
+        val clean = trimmed.replace("AM", "").replace("PM", "").trim()
+        val parts = clean.split(":")
+        var hour = parts[0].trim().toInt()
+        val minute = if (parts.size > 1) parts[1].trim().toInt() else 0
+        if (isPm && hour < 12) hour += 12
+        if (isAm && hour == 12) hour = 0
+        Pair(hour.coerceIn(0, 23), minute.coerceIn(0, 59))
+    } catch (_: Exception) {
+        Pair(fallbackHour, fallbackMinute)
+    }
+}
+
+private fun getSleepRangeStatus(start: Pair<Int, Int>, end: Pair<Int, Int>): Pair<Boolean, Pair<Int, Int>> {
+    val now = Calendar.getInstance()
+    val currentMinuteOfDay = now.get(Calendar.HOUR_OF_DAY) * 60 + now.get(Calendar.MINUTE)
+    val startMinuteOfDay = start.first * 60 + start.second
+    val endMinuteOfDay = end.first * 60 + end.second
+
+    val isInWindow = if (startMinuteOfDay < endMinuteOfDay) {
+        currentMinuteOfDay in startMinuteOfDay until endMinuteOfDay
+    } else if (startMinuteOfDay > endMinuteOfDay) {
+        currentMinuteOfDay >= startMinuteOfDay || currentMinuteOfDay < endMinuteOfDay
+    } else {
+        true
+    }
+
+    val remainingMinutes = if (!isInWindow) {
+        0
+    } else if (startMinuteOfDay < endMinuteOfDay) {
+        endMinuteOfDay - currentMinuteOfDay
+    } else {
+        if (currentMinuteOfDay < endMinuteOfDay) {
+            endMinuteOfDay - currentMinuteOfDay
+        } else {
+            (24 * 60 - currentMinuteOfDay) + endMinuteOfDay
+        }
+    }
+
+    val hoursLeft = remainingMinutes / 60
+    val minsLeft = remainingMinutes % 60
+    return Pair(isInWindow, Pair(hoursLeft, minsLeft))
+}

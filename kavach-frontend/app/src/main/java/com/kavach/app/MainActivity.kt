@@ -132,6 +132,7 @@ class MainActivity : FragmentActivity() {
             val sensorReading by viewModel.sensorReading.collectAsStateWithLifecycle()
             val settings by viewModel.settings.collectAsStateWithLifecycle()
             val isTermsAccepted by viewModel.isTermsAccepted.collectAsStateWithLifecycle()
+            val isSignedUp by viewModel.isSignedUp.collectAsStateWithLifecycle()
             val isNightGuardDismissed by viewModel.isNightGuardDismissedForTonight.collectAsStateWithLifecycle()
             val isNightWindowActive by viewModel.isNightWindowActive.collectAsStateWithLifecycle()
             val isAutoPocketActive by viewModel.isAutoPocketSessionActive.collectAsStateWithLifecycle()
@@ -441,6 +442,17 @@ class MainActivity : FragmentActivity() {
                         com.kavach.app.ui.screens.TermsAndDisclosureScreen(
                             onAccept = { viewModel.acceptTerms() }
                         )
+                    } else if (!isSignedUp) {
+                        // First-time Phone Number Sign-up & Onboarding Flow
+                        com.kavach.app.ui.screens.SignUpFlowScreen(
+                            initialPhone = userProfile.phoneNumber,
+                            onSignUpComplete = { completedProfile ->
+                                viewModel.completeSignUp(completedProfile)
+                            },
+                            onLogInWithPassword = { phone, password ->
+                                viewModel.logInWithPassword(phone, password)
+                            }
+                        )
                     } else {
                         // Overlays based on state
                         when (shieldState) {
@@ -607,6 +619,9 @@ class MainActivity : FragmentActivity() {
                                                 },
                                                 onSettingsChanged = { updatedSettings ->
                                                     viewModel.updateSettings(updatedSettings)
+                                                },
+                                                onSignOut = {
+                                                    viewModel.signOut()
                                                 },
                                                 onNavigateBack = { navController.popBackStack() }
                                             )

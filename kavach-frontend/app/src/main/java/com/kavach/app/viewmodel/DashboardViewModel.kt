@@ -39,6 +39,60 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     fun saveUserProfile(profile: UserProfile) {
         viewModelScope.launch {
             profileRepository.saveProfile(profile)
+            applySleepScheduleFromProfile(profile)
+        }
+    }
+
+    private fun parseScheduleTime(timeStr: String, fallbackHour: Int = 23, fallbackMinute: Int = 0): Pair<Int, Int> {
+        return try {
+            val trimmed = timeStr.trim().uppercase()
+            val isPm = trimmed.contains("PM")
+            val isAm = trimmed.contains("AM")
+            val clean = trimmed.replace("AM", "").replace("PM", "").trim()
+            val parts = clean.split(":")
+            var hour = parts[0].trim().toInt()
+            val minute = if (parts.size > 1) parts[1].trim().toInt() else 0
+            if (isPm && hour < 12) hour += 12
+            if (isAm && hour == 12) hour = 0
+            Pair(hour.coerceIn(0, 23), minute.coerceIn(0, 59))
+        } catch (_: Exception) {
+            Pair(fallbackHour, fallbackMinute)
+        }
+    }
+
+    fun applySleepScheduleFromProfile(profile: UserProfile) {
+        val app = getApplication<Application>()
+        val prefs = app.getSharedPreferences("kavach_prefs", Context.MODE_PRIVATE)
+
+        if (profile.sleepScheduleAnswer == "Yes") {
+            val parsedStart = parseScheduleTime(profile.sleepScheduleStart, fallbackHour = 23, fallbackMinute = 0)
+            val parsedEnd = parseScheduleTime(profile.sleepScheduleEnd, fallbackHour = 7, fallbackMinute = 0)
+
+            val updatedSchedule = settings.value.nightSchedule.copy(
+                enabled = true,
+                startHour = parsedStart.first,
+                startMinute = parsedStart.second,
+                endHour = parsedEnd.first,
+                endMinute = parsedEnd.second
+            )
+
+            userDisarmedNightWindow = false
+            prefs.edit()
+                .putBoolean("night_disarmed_by_user", false)
+                .putString("night_cancelled_window_id", "")
+                .apply()
+            _isNightGuardDismissedForTonight.value = false
+
+            viewModelScope.launch {
+                preferences.updateSettings(settings.value.copy(nightSchedule = updatedSchedule))
+                checkAndTriggerNightScheduleNow()
+            }
+        } else if (profile.sleepScheduleAnswer in listOf("No", "Maybe")) {
+            val updatedSchedule = settings.value.nightSchedule.copy(enabled = false)
+            viewModelScope.launch {
+                preferences.updateSettings(settings.value.copy(nightSchedule = updatedSchedule))
+                checkAndTriggerNightScheduleNow()
+            }
         }
     }
 
@@ -483,9 +537,10 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
 
         val currentState = _shieldState.value
         val serviceState = KavachForegroundService.serviceShieldState.value
-        val isAlreadyGuarding = currentState != ShieldState.DISARMED || serviceState != ShieldState.DISARMED
+        val isAlreadyGuardingSleep = (currentState == ShieldState.ARMED || serviceState == ShieldState.ARMED) &&
+            settings.value.detectionMode == DetectionMode.SLEEP
 
-        if (isInWindow && !isAlreadyGuarding && !isCancelledForThisWindow) {
+        if (isInWindow && !isAlreadyGuardingSleep && !isCancelledForThisWindow) {
             val remainingMinutes = if (startMinuteOfDay < endMinuteOfDay) {
                 endMinuteOfDay - currentMinuteOfDay
             } else {
@@ -881,6 +936,29 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         viewModelScope.launch {
             preferences.setTermsAccepted(true)
         }
+    }
+
+    private val _isSignedUp = MutableStateFlow(profileRepository.isSignedUp())
+    val isSignedUp: StateFlow<Boolean> = _isSignedUp.asStateFlow()
+
+    fun completeSignUp(profile: UserProfile) {
+        profileRepository.setSignedUp(true)
+        _isSignedUp.value = true
+        saveUserProfile(profile)
+    }
+
+    fun logInWithPassword(phone: String, pass: String): Boolean {
+        val matches = profileRepository.verifyPassword(phone, pass)
+        if (matches) {
+            profileRepository.setSignedUp(true)
+            _isSignedUp.value = true
+        }
+        return matches
+    }
+
+    fun signOut() {
+        profileRepository.setSignedUp(false)
+        _isSignedUp.value = false
     }
 
     
