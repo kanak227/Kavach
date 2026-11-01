@@ -778,6 +778,10 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         monitorJob = viewModelScope.launch {
             sensorFusion.motionDetected.collect { detected ->
                 if (detected && _shieldState.value == ShieldState.ARMED) {
+                    if (settings.value.detectionMode == DetectionMode.SLEEP && KavachForegroundService.isSleepCallActive()) {
+                        sensorFusion.resetMotionFlag()
+                        return@collect
+                    }
                     triggerDecoyTrap()
                 }
             }

@@ -8,6 +8,8 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.media.AudioManager
+import android.telephony.TelephonyManager
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
@@ -94,6 +96,10 @@ class KavachForegroundService : Service() {
                 service.sensorFusion?.setSensitivity(level)
             }
         }
+
+        fun isSleepCallActive(): Boolean = activeInstance?.let {
+            it.isSleepCallRinging || it.isSleepCallAttended || _serviceShieldState.value == ShieldState.ARMING
+        } ?: false
 
         fun closeAutoPocketSession(context: Context) {
             context.getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
@@ -203,6 +209,10 @@ class KavachForegroundService : Service() {
     private var monitoringJob: Job? = null
     private var timerJob: Job? = null
     private var alarmTimeoutJob: Job? = null
+    private var sleepCallMonitoringJob: Job? = null
+    private var isSleepCallRinging = false
+    private var isSleepCallAttended = false
+    private var currentGuardingMode: DetectionMode = DetectionMode.TRAVEL
 
     private val screenOffReceiver = object : android.content.BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -379,6 +389,7 @@ class KavachForegroundService : Service() {
         volumePercent: Int,
         configuredAuthCountdownSecs: Int = 5
     ) {
+        currentGuardingMode = mode
         _serviceShieldState.value = ShieldState.ARMED
         // Guarding silently - no noisy notifications during normal armed state
 
@@ -395,10 +406,94 @@ class KavachForegroundService : Service() {
             startListening()
         }
 
+        // Phone call handling specifically for Sleep Mode:
+        sleepCallMonitoringJob?.cancel()
+        isSleepCallRinging = false
+        isSleepCallAttended = false
+
+        if (mode == DetectionMode.SLEEP) {
+            val audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+            val telephonyManager = getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager
+
+            sleepCallMonitoringJob = serviceScope.launch {
+                var wasCallActive = false
+
+                while (isActive && _serviceShieldState.value != ShieldState.DISARMED) {
+                    val audioMode = audioManager?.mode ?: AudioManager.MODE_NORMAL
+                    val telephonyState = try {
+                        telephonyManager?.callState ?: TelephonyManager.CALL_STATE_IDLE
+                    } catch (_: Exception) {
+                        TelephonyManager.CALL_STATE_IDLE
+                    }
+
+                    val isRingingNow = (audioMode == AudioManager.MODE_RINGTONE) ||
+                        (telephonyState == TelephonyManager.CALL_STATE_RINGING)
+
+                    val isOffHookNow = (audioMode == AudioManager.MODE_IN_CALL) ||
+                        (audioMode == AudioManager.MODE_IN_COMMUNICATION) ||
+                        (telephonyState == TelephonyManager.CALL_STATE_OFFHOOK)
+
+                    if (isRingingNow) {
+                        isSleepCallRinging = true
+                        wasCallActive = true
+                    } else if (isOffHookNow) {
+                        isSleepCallAttended = true
+                        isSleepCallRinging = false
+                        wasCallActive = true
+                    } else if (wasCallActive && !isRingingNow && !isOffHookNow) {
+                        // Call ended / cut!
+                        wasCallActive = false
+                        val attended = isSleepCallAttended
+                        isSleepCallRinging = false
+                        isSleepCallAttended = false
+
+                        if (attended) {
+                            // User attended the call and hung up:
+                            // Trigger arming countdown so user can put phone back down!
+                            val armCountdown = try {
+                                getSharedPreferences("kavach_prefs", Context.MODE_PRIVATE)
+                                    .getInt("arming_countdown_seconds", 5)
+                            } catch (_: Exception) { 5 }
+
+                            _serviceShieldState.value = ShieldState.ARMING
+                            _serviceArmingCountdown.value = armCountdown
+
+                            for (sec in armCountdown downTo 1) {
+                                if (!isActive || _serviceShieldState.value == ShieldState.DISARMED) break
+                                _serviceArmingCountdown.value = sec
+                                delay(1000)
+                            }
+
+                            if (isActive && _serviceShieldState.value != ShieldState.DISARMED) {
+                                _serviceArmingCountdown.value = 0
+                                _serviceShieldState.value = ShieldState.ARMED
+                                sensorFusion?.setDetectionMode(DetectionMode.SLEEP)
+                                sensorFusion?.recalibrate()
+                                sensorFusion?.resetMotionFlag()
+                            }
+                        } else {
+                            // Call cut without being attended (missed or declined):
+                            // Immediately resume Sleep Guard and recalibrate surface baseline!
+                            sensorFusion?.recalibrate()
+                            sensorFusion?.resetMotionFlag()
+                        }
+                    }
+
+                    delay(300)
+                }
+            }
+        }
+
         // Monitor for motion/theft triggers — stealth decoy countdown first, NOT immediate alarm!
         monitoringJob?.cancel()
         monitoringJob = serviceScope.launch {
             sensorFusion?.motionDetected?.collect { detected ->
+                // Sleep Mode incoming call / talk / re-arming protection: strictly suppress motion triggers!
+                if (currentGuardingMode == DetectionMode.SLEEP && (isSleepCallRinging || isSleepCallAttended || _serviceShieldState.value == ShieldState.ARMING)) {
+                    sensorFusion?.resetMotionFlag()
+                    return@collect
+                }
+
                 if (detected && _serviceShieldState.value == ShieldState.ARMED) {
                     val authCountdownSecs = if (configuredAuthCountdownSecs in 1..60) {
                         configuredAuthCountdownSecs
@@ -441,6 +536,10 @@ class KavachForegroundService : Service() {
 
                 while (isActive && remaining > 0 && _serviceShieldState.value != ShieldState.DISARMED) {
                     delay(1000)
+                    // In Sleep Mode: pause guard timer countdown while call is ringing, in progress, or re-arming
+                    if (currentGuardingMode == DetectionMode.SLEEP && (isSleepCallRinging || isSleepCallAttended || _serviceShieldState.value == ShieldState.ARMING)) {
+                        continue
+                    }
                     remaining--
                     _serviceRemainingSeconds.value = remaining
                     if (_serviceShieldState.value == ShieldState.ARMED) {
@@ -562,6 +661,10 @@ class KavachForegroundService : Service() {
         authCountdownJob?.cancel()
         alarmTimeoutJob?.cancel()
         alarmTimeoutJob = null
+        sleepCallMonitoringJob?.cancel()
+        sleepCallMonitoringJob = null
+        isSleepCallRinging = false
+        isSleepCallAttended = false
         monitoringJob?.cancel()
         timerJob?.cancel()
 
