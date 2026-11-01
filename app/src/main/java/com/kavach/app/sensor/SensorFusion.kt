@@ -448,13 +448,19 @@ class SensorFusion(context: Context) : SensorEventListener {
     /**
      * Travel Mode: Dynamically shifts behavior based on phone environment:
      * 1. 5-Second Base State Analysis on start:
-     *    - Cloth detected over screen -> IN_POCKET logic (vertical extraction trigger)
-     *    - Flat & motionless on surface -> DESK_IDLE logic (vertical lift with car bump immunity)
-     *    - Micro-movements in hand -> ACTIVE_USE (silent/dormant)
-     * 2. When in ACTIVE_USE: 1-minute interval with a 30-second Stillness Window.
-     *    If movement detected during 30s, 1-min timer restarts.
-     *    If motionless for full 30s, locks fresh desk baseline and shifts to DESK_IDLE.
-     * 3. Parameter of trigger in both desk and pocket is strictly vertical movement.
+     *    - If motion detected during first 5s -> Starts 1-minute timer (do nothing).
+     *    - If motionless during first 5s:
+     *      - In pocket/bag (proximity covered / 0 lux vertical) -> IN_POCKET logic.
+     *      - Flat & motionless on surface (even with 1 lux in dark car) -> DESK_IDLE logic.
+     * 2. ACTIVE_USE (1-min wait + 15-sec observation loop):
+     *    - For 1 minute: do nothing, zero false alarms.
+     *    - Then observe for 15 seconds:
+     *      - If even the slightest movement in 15s -> restart 1-minute wait loop.
+     *      - If motionless for full 15s:
+     *        - In pocket/bag -> IN_POCKET.
+     *        - At rest on surface (even with 1 lux in dark car) -> DESK_IDLE.
+     * 3. Once in IN_POCKET or DESK_IDLE:
+     *    - Runs 24x7 until triggered & authenticated, or authenticated without triggering.
      */
     private fun handleTravelDetection(x: Float, y: Float, z: Float, totalG: Float, accelDeviation: Float) {
         val now = System.currentTimeMillis()
@@ -464,7 +470,8 @@ class SensorFusion(context: Context) : SensorEventListener {
             _motionDetected.value = false // Strictly guarantee no alarm can ever trigger during the 5s analysis window
             _travelCurrentSubState.value = TravelSubState.CALIBRATING_BASE
 
-            val isClothOverScreen = (currentLight < 25f && currentProximityCovered)
+            val verticalRatio = if (totalG > 0.1f) abs(y) / totalG else 0f
+            val isClothOverScreen = currentProximityCovered || (currentLight < 0.5f && verticalRatio > 0.65f)
             if (isClothOverScreen) {
                 travelAnalysisHadCloth = true
             }
@@ -482,12 +489,23 @@ class SensorFusion(context: Context) : SensorEventListener {
 
             if (now - travelArmTimestamp >= TRAVEL_ANALYSIS_WINDOW_MS) {
                 travelBaseAnalysisDone = true
-                if (travelAnalysisHadCloth) {
+                if (travelAnalysisHadMotion) {
+                    // Movement detected in first 5s -> user is holding/using phone!
+                    // Start 1-minute timer in which we do nothing
+                    _travelCurrentSubState.value = TravelSubState.ACTIVE_USE
+                    travelHandCycleStart = now
+                    travelDeskCalibrationSamples = 0
+                    travelBaselineX = 0f
+                    travelBaselineY = 0f
+                    travelBaselineZ = 0f
+                } else if (travelAnalysisHadCloth) {
+                    // Phone was put into pocket/bag
                     _travelCurrentSubState.value = TravelSubState.IN_POCKET
                     travelDeskBaselineSet = false
                     pocketBaselineLight = currentLight
                     lightBaselineSet = true
-                } else if (!travelAnalysisHadMotion && travelDeskCalibrationSamples >= 15) {
+                } else if (travelDeskCalibrationSamples >= 15) {
+                    // Phone is at rest on a surface (even 1 lux in dark car) -> Desk Mode!
                     val mag = sqrt(travelBaselineX * travelBaselineX + travelBaselineY * travelBaselineY + travelBaselineZ * travelBaselineZ)
                     travelBaselineG = if (mag > 0.1f) mag else 9.81f
                     travelNormalX = travelBaselineX / travelBaselineG
@@ -497,10 +515,9 @@ class SensorFusion(context: Context) : SensorEventListener {
                     travelDeskBaselineSet = true
                     _travelCurrentSubState.value = TravelSubState.DESK_IDLE
                 } else {
-                    // Slightest movement detected -> user is using or holding phone!
                     _travelCurrentSubState.value = TravelSubState.ACTIVE_USE
-                    travelHandCycleStart = now // Start 1-minute countdown
-                    travelDeskBaselineSet = false
+                    travelHandCycleStart = now
+                    travelDeskCalibrationSamples = 0
                 }
             }
             _sensorReading.value = _sensorReading.value.copy(motionMagnitude = accelDeviation)
@@ -509,94 +526,73 @@ class SensorFusion(context: Context) : SensorEventListener {
 
         // Phase 2: Active Sub-State Handling
         when (_travelCurrentSubState.value) {
-            TravelSubState.IN_POCKET -> {
-                // If phone is taken out of pocket into open room/day light
-                val isOutOfPocket = (currentLight >= 35f && !currentProximityCovered)
-                if (isOutOfPocket) {
-                    // Evaluate pickpocket extraction fusion
-                    handlePocketDetection(x, y, z, totalG, accelDeviation)
-
-                    // If no theft was triggered and phone has been in light beyond the fusion window, transition to ACTIVE_USE
-                    if (!_motionDetected.value && (now - lastProximityOpenTime) > signalWindowMs) {
-                        _travelCurrentSubState.value = TravelSubState.ACTIVE_USE
-                        travelHandCycleStart = now
-                        travelDeskBaselineSet = false
-                        travelDeskCalibrationSamples = 0
-                    }
-                } else {
-                    // Strictly vertical extraction detection while inside pocket/bag
-                    handlePocketDetection(x, y, z, totalG, accelDeviation)
-                }
-            }
-
-            TravelSubState.DESK_IDLE -> {
-                // If user puts phone into pocket from desk
-                val isPutInPocket = (currentLight < 25f && currentProximityCovered)
-                if (isPutInPocket) {
-                    _travelCurrentSubState.value = TravelSubState.IN_POCKET
-                    travelDeskBaselineSet = false
-                    travelDeskCalibrationSamples = 0
-                    pocketBaselineLight = currentLight
-                    lightBaselineSet = true
-                    handlePocketDetection(x, y, z, totalG, accelDeviation)
-                } else {
-                    // Strictly vertical lift with vehicle bump shock absorber
-                    handleTravelDeskDetection(x, y, z)
-                }
-            }
-
             TravelSubState.ACTIVE_USE, TravelSubState.CALIBRATING_BASE -> {
-                // 1. Check if user put phone inside pocket or bag!
-                val verticalRatio = if (totalG > 0.1f) abs(y) / totalG else 0f
-                val isPutInPocket = (currentLight < 25f && currentProximityCovered) || (currentLight < 15f && verticalRatio > 0.65f)
-
-                if (isPutInPocket) {
-                    _travelCurrentSubState.value = TravelSubState.IN_POCKET
-                    travelDeskBaselineSet = false
-                    travelDeskCalibrationSamples = 0
-                    pocketBaselineLight = currentLight
-                    lightBaselineSet = true
-                    handlePocketDetection(x, y, z, totalG, accelDeviation)
-                    return
-                }
-
-                // 2. Phone is actively with user in hand: dormant, never false alarms
                 _sensorReading.value = _sensorReading.value.copy(motionMagnitude = accelDeviation)
 
                 val elapsedInCycle = now - travelHandCycleStart
                 if (elapsedInCycle < TRAVEL_HAND_INTERVAL_MS) {
-                    // Still in the 1-minute waiting period
-                    if (accelDeviation > 0.35f) {
-                        lastMovementTimestamp = now
-                    }
-                } else {
-                    // Inside the 15-second Stillness Window!
-                    val elapsedInStillness = elapsedInCycle - TRAVEL_HAND_INTERVAL_MS
-                    if (accelDeviation > 0.30f) {
-                        // Movement detected during the 15s window! Restart the 1-minute timer
-                        travelHandCycleStart = now
-                        travelDeskBaselineSet = false
-                        travelDeskCalibrationSamples = 0
-                    } else {
-                        // Stillness sample collection
-                        travelBaselineX = ((travelBaselineX * travelDeskCalibrationSamples) + x) / (travelDeskCalibrationSamples + 1)
-                        travelBaselineY = ((travelBaselineY * travelDeskCalibrationSamples) + y) / (travelDeskCalibrationSamples + 1)
-                        travelBaselineZ = ((travelBaselineZ * travelDeskCalibrationSamples) + z) / (travelDeskCalibrationSamples + 1)
-                        travelDeskCalibrationSamples++
+                    // 1-minute timer: DO NOTHING!
+                    // Phone is actively with user in hand/transit: dormant, never false alarms
+                    travelDeskCalibrationSamples = 0
+                    travelBaselineX = 0f
+                    travelBaselineY = 0f
+                    travelBaselineZ = 0f
+                    return
+                }
 
-                        if (elapsedInStillness >= TRAVEL_STILLNESS_WINDOW_MS && travelDeskCalibrationSamples >= 15) {
-                            // 15 seconds of stillness complete: user set down phone on table/desk! Switch to DESK_IDLE!
-                            val mag = sqrt(travelBaselineX * travelBaselineX + travelBaselineY * travelBaselineY + travelBaselineZ * travelBaselineZ)
-                            travelBaselineG = if (mag > 0.1f) mag else 9.81f
-                            travelNormalX = travelBaselineX / travelBaselineG
-                            travelNormalY = travelBaselineY / travelBaselineG
-                            travelNormalZ = travelBaselineZ / travelBaselineG
-                            travelConsecutiveVerticalSamples = 0
-                            travelDeskBaselineSet = true
-                            _travelCurrentSubState.value = TravelSubState.DESK_IDLE
-                        }
+                // 1-minute wait is over! Inside the 15-second Stillness Observation Window:
+                val elapsedInObservation = elapsedInCycle - TRAVEL_HAND_INTERVAL_MS
+
+                // Check regularly if there is even the slightest movement in the 15 seconds:
+                if (accelDeviation > 0.20f) {
+                    // Movement detected! Start 1-minute wait again
+                    travelHandCycleStart = now
+                    travelDeskCalibrationSamples = 0
+                    travelBaselineX = 0f
+                    travelBaselineY = 0f
+                    travelBaselineZ = 0f
+                    return
+                }
+
+                // Motionless during this sample: collect surface normal baseline
+                travelBaselineX = ((travelBaselineX * travelDeskCalibrationSamples) + x) / (travelDeskCalibrationSamples + 1)
+                travelBaselineY = ((travelBaselineY * travelDeskCalibrationSamples) + y) / (travelDeskCalibrationSamples + 1)
+                travelBaselineZ = ((travelBaselineZ * travelDeskCalibrationSamples) + z) / (travelDeskCalibrationSamples + 1)
+                travelDeskCalibrationSamples++
+
+                // When full 15 seconds of stillness observation is complete:
+                if (elapsedInObservation >= TRAVEL_STILLNESS_WINDOW_MS && travelDeskCalibrationSamples >= 15) {
+                    val verticalRatio = if (totalG > 0.1f) abs(y) / totalG else 0f
+                    val isInPocket = currentProximityCovered || (currentLight < 0.5f && verticalRatio > 0.65f)
+
+                    if (isInPocket) {
+                        // Phone is in pocket -> Lock Pocket Mode!
+                        _travelCurrentSubState.value = TravelSubState.IN_POCKET
+                        travelDeskBaselineSet = false
+                        pocketBaselineLight = currentLight
+                        lightBaselineSet = true
+                    } else {
+                        // Phone is in rest on desk / car console with some light (even 1 lux) -> Lock Desk Mode!
+                        val mag = sqrt(travelBaselineX * travelBaselineX + travelBaselineY * travelBaselineY + travelBaselineZ * travelBaselineZ)
+                        travelBaselineG = if (mag > 0.1f) mag else 9.81f
+                        travelNormalX = travelBaselineX / travelBaselineG
+                        travelNormalY = travelBaselineY / travelBaselineG
+                        travelNormalZ = travelBaselineZ / travelBaselineG
+                        travelConsecutiveVerticalSamples = 0
+                        travelDeskBaselineSet = true
+                        _travelCurrentSubState.value = TravelSubState.DESK_IDLE
                     }
                 }
+            }
+
+            TravelSubState.IN_POCKET -> {
+                // Strictly vertical extraction detection while inside pocket/bag (guarded 24x7)
+                handlePocketDetection(x, y, z, totalG, accelDeviation)
+            }
+
+            TravelSubState.DESK_IDLE -> {
+                // Strictly vertical lift with vehicle bump shock absorber (guarded 24x7)
+                handleTravelDeskDetection(x, y, z)
             }
         }
     }
@@ -652,11 +648,10 @@ class SensorFusion(context: Context) : SensorEventListener {
     private fun handleLight(event: SensorEvent) {
         currentLight = event.values[0]
 
-        if (_detectionMode == DetectionMode.POCKET || _detectionMode == DetectionMode.TRAVEL) {
-            if (_detectionMode == DetectionMode.TRAVEL && !travelBaseAnalysisDone) {
-                return // Absolutely zero reaction or triggers during initial 5s baseline analysis
-            }
+        val isPocketActive = (_detectionMode == DetectionMode.POCKET) ||
+            (_detectionMode == DetectionMode.TRAVEL && _travelCurrentSubState.value == TravelSubState.IN_POCKET)
 
+        if (isPocketActive) {
             if (!lightBaselineSet) {
                 // Calibrate baseline light inside pocket
                 if (pocketBaselineLight < 0f) {
@@ -692,11 +687,10 @@ class SensorFusion(context: Context) : SensorEventListener {
         val wasCovered = currentProximityCovered
         currentProximityCovered = isCovered
 
-        if (_detectionMode == DetectionMode.POCKET || _detectionMode == DetectionMode.TRAVEL) {
-            if (_detectionMode == DetectionMode.TRAVEL && !travelBaseAnalysisDone) {
-                return // Absolutely zero reaction or triggers during initial 5s baseline analysis
-            }
+        val isPocketActive = (_detectionMode == DetectionMode.POCKET) ||
+            (_detectionMode == DetectionMode.TRAVEL && _travelCurrentSubState.value == TravelSubState.IN_POCKET)
 
+        if (isPocketActive) {
             if (!initialProximityRecorded) {
                 pocketInitialProximityCovered = isCovered
                 initialProximityRecorded = true
@@ -720,7 +714,7 @@ class SensorFusion(context: Context) : SensorEventListener {
      * Extraction produces at least 2 signals within the 1.5s window.
      */
     private fun evaluatePickpocketFusion() {
-        if (_detectionMode == DetectionMode.TRAVEL && !travelBaseAnalysisDone) {
+        if (_detectionMode == DetectionMode.TRAVEL && _travelCurrentSubState.value != TravelSubState.IN_POCKET) {
             return
         }
 
