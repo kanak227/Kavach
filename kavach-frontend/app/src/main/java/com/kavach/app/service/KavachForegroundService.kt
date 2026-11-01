@@ -1,6 +1,17 @@
 package com.kavach.app.service
 
 import android.app.AlarmManager
+import android.content.BroadcastReceiver
+import android.content.IntentFilter
+import android.media.AudioAttributes
+import android.media.AudioManager
+import android.media.AudioPlaybackConfiguration
+import android.os.Handler
+import android.os.Looper
+import android.telephony.PhoneStateListener
+import android.telephony.TelephonyCallback
+import android.telephony.TelephonyManager
+import androidx.core.content.ContextCompat
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -101,6 +112,12 @@ class KavachForegroundService : Service() {
                 .putBoolean("auto_pocket_session_active", false)
                 .commit()
         }
+
+        fun isCallActive(): Boolean = activeInstance?.let {
+            it.isCallRinging || it.isCallAttended || _serviceShieldState.value == ShieldState.ARMING
+        } ?: false
+
+        fun isSleepCallActive(): Boolean = isCallActive()
 
         /**
          * Millisecond-instant arming hand-off:
@@ -203,6 +220,18 @@ class KavachForegroundService : Service() {
     private var monitoringJob: Job? = null
     private var timerJob: Job? = null
     private var alarmTimeoutJob: Job? = null
+
+    // Phone Call / Ringing state tracking (guard pauses on incoming and ongoing calls)
+    @Volatile
+    var isCallRinging: Boolean = false
+    @Volatile
+    var isCallAttended: Boolean = false
+    @Volatile
+    var wasCallActive: Boolean = false
+    private var callMonitoringJob: Job? = null
+    private var audioPlaybackCallback: AudioManager.AudioPlaybackCallback? = null
+    private var telephonyCallback: Any? = null
+    private var phoneStateReceiver: BroadcastReceiver? = null
 
     private val screenOffReceiver = object : android.content.BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -395,10 +424,19 @@ class KavachForegroundService : Service() {
             startListening()
         }
 
+        // Multi-layered Call State & Ringing Monitor: Pauses guard completely during calls
+        setupCallStateMonitoring()
+
         // Monitor for motion/theft triggers — stealth decoy countdown first, NOT immediate alarm!
         monitoringJob?.cancel()
         monitoringJob = serviceScope.launch {
             sensorFusion?.motionDetected?.collect { detected ->
+                // Sleep Mode / Armed Guard incoming call & in-call pause: suppress motion triggers completely!
+                if (isCallActive()) {
+                    sensorFusion?.resetMotionFlag()
+                    return@collect
+                }
+
                 if (detected && _serviceShieldState.value == ShieldState.ARMED) {
                     val authCountdownSecs = if (configuredAuthCountdownSecs in 1..60) {
                         configuredAuthCountdownSecs
@@ -441,6 +479,10 @@ class KavachForegroundService : Service() {
 
                 while (isActive && remaining > 0 && _serviceShieldState.value != ShieldState.DISARMED) {
                     delay(1000)
+                    // In Sleep/Armed Mode: pause guard timer countdown while call is ringing, in progress, or re-arming
+                    if (isCallActive()) {
+                        continue
+                    }
                     remaining--
                     _serviceRemainingSeconds.value = remaining
                     if (_serviceShieldState.value == ShieldState.ARMED) {
@@ -551,6 +593,236 @@ class KavachForegroundService : Service() {
         }
     }
 
+    private fun onCallRingingDetected() {
+        if (_serviceShieldState.value == ShieldState.DISARMED) return
+        isCallRinging = true
+        wasCallActive = true
+        // If shield was in TRIGGERED auth countdown when phone started ringing, cancel countdown and stay ARMED!
+        if (_serviceShieldState.value == ShieldState.TRIGGERED) {
+            authCountdownJob?.cancel()
+            _serviceAuthCountdown.value = 0
+            _serviceShieldState.value = ShieldState.ARMED
+        }
+        sensorFusion?.resetMotionFlag()
+    }
+
+    private fun onCallAttendedDetected() {
+        if (_serviceShieldState.value == ShieldState.DISARMED) return
+        isCallRinging = false
+        isCallAttended = true
+        wasCallActive = true
+        if (_serviceShieldState.value == ShieldState.TRIGGERED) {
+            authCountdownJob?.cancel()
+            _serviceAuthCountdown.value = 0
+            _serviceShieldState.value = ShieldState.ARMED
+        }
+        sensorFusion?.resetMotionFlag()
+    }
+
+    private fun onCallEndedDetected() {
+        if (!wasCallActive) return
+        wasCallActive = false
+        val attended = isCallAttended
+        isCallRinging = false
+        isCallAttended = false
+
+        if (_serviceShieldState.value == ShieldState.DISARMED) return
+
+        if (attended) {
+            // User attended the call and hung up:
+            // Trigger arming countdown so user has time to put phone back down on desk/bed!
+            val armCountdown = try {
+                getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                    .getInt("arming_countdown_seconds", 5)
+            } catch (_: Exception) { 5 }
+
+            serviceScope.launch {
+                _serviceShieldState.value = ShieldState.ARMING
+                _serviceArmingCountdown.value = armCountdown
+
+                for (sec in armCountdown downTo 1) {
+                    if (!isActive || _serviceShieldState.value == ShieldState.DISARMED) break
+                    _serviceArmingCountdown.value = sec
+                    delay(1000)
+                }
+
+                if (isActive && _serviceShieldState.value != ShieldState.DISARMED) {
+                    _serviceArmingCountdown.value = 0
+                    _serviceShieldState.value = ShieldState.ARMED
+                    sensorFusion?.recalibrate()
+                    sensorFusion?.resetMotionFlag()
+                }
+            }
+        } else {
+            // Call cut without being attended (missed or declined):
+            // Immediately resume Sleep Guard and recalibrate surface baseline!
+            sensorFusion?.recalibrate()
+            sensorFusion?.resetMotionFlag()
+        }
+    }
+
+    private fun setupCallStateMonitoring() {
+        cleanupCallStateMonitoring()
+
+        val audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+        val telephonyManager = getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager
+
+        // 1. AudioPlaybackCallback (detects incoming ringtone and voice call audio with 0 permissions!)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            try {
+                val callback = object : AudioManager.AudioPlaybackCallback() {
+                    override fun onPlaybackConfigChanged(configs: MutableList<AudioPlaybackConfiguration>?) {
+                        super.onPlaybackConfigChanged(configs)
+                        val isRingtonePlaying = configs?.any { config ->
+                            val usage = config.audioAttributes?.usage ?: -1
+                            usage == AudioAttributes.USAGE_NOTIFICATION_RINGTONE ||
+                            usage == AudioAttributes.USAGE_NOTIFICATION_COMMUNICATION_REQUEST
+                        } == true
+
+                        val isVoiceCallPlaying = configs?.any { config ->
+                            val usage = config.audioAttributes?.usage ?: -1
+                            usage == AudioAttributes.USAGE_VOICE_COMMUNICATION ||
+                            usage == AudioAttributes.USAGE_VOICE_COMMUNICATION_SIGNALLING
+                        } == true
+
+                        if (isRingtonePlaying) {
+                            onCallRingingDetected()
+                        } else if (isVoiceCallPlaying) {
+                            onCallAttendedDetected()
+                        }
+                    }
+                }
+                audioManager?.registerAudioPlaybackCallback(callback, Handler(Looper.getMainLooper()))
+                audioPlaybackCallback = callback
+            } catch (_: Exception) {}
+        }
+
+        // 2. TelephonyCallback / PhoneStateListener (System cellular call state)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            try {
+                val callback = object : TelephonyCallback(), TelephonyCallback.CallStateListener {
+                    override fun onCallStateChanged(state: Int) {
+                        when (state) {
+                            TelephonyManager.CALL_STATE_RINGING -> onCallRingingDetected()
+                            TelephonyManager.CALL_STATE_OFFHOOK -> onCallAttendedDetected()
+                            TelephonyManager.CALL_STATE_IDLE -> onCallEndedDetected()
+                        }
+                    }
+                }
+                telephonyManager?.registerTelephonyCallback(ContextCompat.getMainExecutor(this), callback)
+                telephonyCallback = callback
+            } catch (_: Exception) {}
+        } else {
+            try {
+                @Suppress("DEPRECATION")
+                val listener = object : PhoneStateListener() {
+                    @Deprecated("Deprecated in Java")
+                    override fun onCallStateChanged(state: Int, phoneNumber: String?) {
+                        when (state) {
+                            TelephonyManager.CALL_STATE_RINGING -> onCallRingingDetected()
+                            TelephonyManager.CALL_STATE_OFFHOOK -> onCallAttendedDetected()
+                            TelephonyManager.CALL_STATE_IDLE -> onCallEndedDetected()
+                        }
+                    }
+                }
+                @Suppress("DEPRECATION")
+                telephonyManager?.listen(listener, PhoneStateListener.LISTEN_CALL_STATE)
+                telephonyCallback = listener
+            } catch (_: Exception) {}
+        }
+
+        // 3. BroadcastReceiver for ACTION_PHONE_STATE_CHANGED
+        try {
+            val receiver = object : BroadcastReceiver() {
+                override fun onReceive(context: Context?, intent: Intent?) {
+                    if (intent?.action == TelephonyManager.ACTION_PHONE_STATE_CHANGED) {
+                        val stateStr = intent.getStringExtra(TelephonyManager.EXTRA_STATE)
+                        when (stateStr) {
+                            TelephonyManager.EXTRA_STATE_RINGING -> onCallRingingDetected()
+                            TelephonyManager.EXTRA_STATE_OFFHOOK -> onCallAttendedDetected()
+                            TelephonyManager.EXTRA_STATE_IDLE -> onCallEndedDetected()
+                        }
+                    }
+                }
+            }
+            val filter = IntentFilter(TelephonyManager.ACTION_PHONE_STATE_CHANGED)
+            registerReceiver(receiver, filter)
+            phoneStateReceiver = receiver
+        } catch (_: Exception) {}
+
+        // 4. Polling loop: AudioManager.mode + Telephony fallback
+        callMonitoringJob = serviceScope.launch {
+            while (isActive && _serviceShieldState.value != ShieldState.DISARMED) {
+                val audioMode = audioManager?.mode ?: AudioManager.MODE_NORMAL
+                val telephonyState = try {
+                    @Suppress("DEPRECATION")
+                    telephonyManager?.callState ?: TelephonyManager.CALL_STATE_IDLE
+                } catch (_: Exception) {
+                    TelephonyManager.CALL_STATE_IDLE
+                }
+
+                val isRingingNow = (audioMode == AudioManager.MODE_RINGTONE) ||
+                    (telephonyState == TelephonyManager.CALL_STATE_RINGING)
+
+                val isOffHookNow = (audioMode == AudioManager.MODE_IN_CALL) ||
+                    (audioMode == AudioManager.MODE_IN_COMMUNICATION) ||
+                    (telephonyState == TelephonyManager.CALL_STATE_OFFHOOK)
+
+                if (isRingingNow) {
+                    onCallRingingDetected()
+                } else if (isOffHookNow) {
+                    onCallAttendedDetected()
+                } else if (wasCallActive && !isRingingNow && !isOffHookNow) {
+                    onCallEndedDetected()
+                }
+
+                if (isCallRinging || isCallAttended || _serviceShieldState.value == ShieldState.ARMING) {
+                    sensorFusion?.resetMotionFlag()
+                }
+
+                delay(250)
+            }
+        }
+    }
+
+    private fun cleanupCallStateMonitoring() {
+        callMonitoringJob?.cancel()
+        callMonitoringJob = null
+
+        val audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && audioPlaybackCallback != null) {
+            try {
+                audioManager?.unregisterAudioPlaybackCallback(audioPlaybackCallback!!)
+            } catch (_: Exception) {}
+            audioPlaybackCallback = null
+        }
+
+        val telephonyManager = getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && telephonyCallback is TelephonyCallback) {
+            try {
+                telephonyManager?.unregisterTelephonyCallback(telephonyCallback as TelephonyCallback)
+            } catch (_: Exception) {}
+            telephonyCallback = null
+        } else if (telephonyCallback is PhoneStateListener) {
+            try {
+                @Suppress("DEPRECATION")
+                telephonyManager?.listen(telephonyCallback as PhoneStateListener, PhoneStateListener.LISTEN_NONE)
+            } catch (_: Exception) {}
+            telephonyCallback = null
+        }
+
+        if (phoneStateReceiver != null) {
+            try {
+                unregisterReceiver(phoneStateReceiver)
+            } catch (_: Exception) {}
+            phoneStateReceiver = null
+        }
+
+        isCallRinging = false
+        isCallAttended = false
+        wasCallActive = false
+    }
+
     private fun performDisarmCleanup() {
         isServiceRunning = false
         _serviceShieldState.value = ShieldState.DISARMED
@@ -558,6 +830,7 @@ class KavachForegroundService : Service() {
         _serviceArmingCountdown.value = 0
         _serviceAuthCountdown.value = 0
 
+        cleanupCallStateMonitoring()
         countdownJob?.cancel()
         authCountdownJob?.cancel()
         alarmTimeoutJob?.cancel()

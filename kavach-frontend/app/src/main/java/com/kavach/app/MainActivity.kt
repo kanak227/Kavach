@@ -69,11 +69,18 @@ class MainActivity : FragmentActivity() {
         val nm = getSystemService(android.app.NotificationManager::class.java)
         nm?.cancelAll()
         enableEdgeToEdge()
-        // Request notification permission for Android 13+
+        // Request notification and phone state permissions
+        val permsToRequest = mutableListOf<String>()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-                requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 101)
+                permsToRequest.add(android.Manifest.permission.POST_NOTIFICATIONS)
             }
+        }
+        if (checkSelfPermission(android.Manifest.permission.READ_PHONE_STATE) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            permsToRequest.add(android.Manifest.permission.READ_PHONE_STATE)
+        }
+        if (permsToRequest.isNotEmpty()) {
+            requestPermissions(permsToRequest.toTypedArray(), 101)
         }
 
         dashboardViewModel = androidx.lifecycle.ViewModelProvider(this)[DashboardViewModel::class.java]
@@ -437,9 +444,11 @@ class MainActivity : FragmentActivity() {
                     } else {
                         // Overlays based on state
                         when (shieldState) {
-                            ShieldState.TRIGGERED -> {
-                                // Decoy trap â€” fake ambient clock shown to thief
+                                                        ShieldState.TRIGGERED -> {
+                                // Urgent Auth Countdown Screen: gives owner time to disarm before alarm detonates
                                 DecoyClockScreen(
+                                    countdownSeconds = decoyCountdown,
+                                    totalSeconds = viewModel.settings.value.decoyCountdownSeconds,
                                     onScreenTapped = {
                                         triggerBiometricAuth(
                                             onSuccess = { viewModel.onAuthenticationSuccess() }

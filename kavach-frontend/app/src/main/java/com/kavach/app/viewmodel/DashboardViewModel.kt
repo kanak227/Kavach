@@ -778,6 +778,10 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         monitorJob = viewModelScope.launch {
             sensorFusion.motionDetected.collect { detected ->
                 if (detected && _shieldState.value == ShieldState.ARMED) {
+                    if (KavachForegroundService.isCallActive()) {
+                        sensorFusion.resetMotionFlag()
+                        return@collect
+                    }
                     triggerDecoyTrap()
                 }
             }
@@ -789,6 +793,10 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
      * Shows calm clock screen + haptic alert → configurable countdown for auth → ALARM
      */
     private fun triggerDecoyTrap() {
+        if (KavachForegroundService.isCallActive()) {
+            sensorFusion.resetMotionFlag()
+            return
+        }
         _shieldState.value = ShieldState.TRIGGERED
         val decoySeconds = settings.value.decoyCountdownSeconds
         _decoyCountdown.value = decoySeconds
