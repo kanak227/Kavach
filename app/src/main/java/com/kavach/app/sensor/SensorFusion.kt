@@ -57,20 +57,18 @@ class SensorFusion(context: Context) : SensorEventListener {
     private val _travelCurrentSubState = MutableStateFlow(TravelSubState.CALIBRATING_BASE)
     val travelCurrentSubState: StateFlow<TravelSubState> = _travelCurrentSubState.asStateFlow()
 
-    private var travelIdleThresholdMs = 3 * 60 * 1000L // default 3 minutes
+    private var travelIdleThresholdMs = 3 * 60 * 1000L // default 3 minutes (configurable x minutes)
     private var lastMovementTimestamp = System.currentTimeMillis()
     private var travelIsDeviceInPocket = false
 
     // Timing constants for Travel Mode
     private val TRAVEL_ANALYSIS_WINDOW_MS = 5000L   // 5 seconds initial state analysis
-    private val TRAVEL_HAND_INTERVAL_MS = 60000L    // 1 minute polling interval
-    private val TRAVEL_STILLNESS_WINDOW_MS = 15000L // 15 seconds stillness window (as requested)
 
     private var travelArmTimestamp = System.currentTimeMillis()
     private var travelBaseAnalysisDone = false
     private var travelAnalysisHadMotion = false
     private var travelAnalysisHadCloth = false
-    private var travelHandCycleStart = System.currentTimeMillis()
+    private var stationarySinceTimestamp = 0L
 
     // Vehicle bump shock absorber variables
     private var lastOpposingShockTime = 0L
@@ -214,7 +212,7 @@ class SensorFusion(context: Context) : SensorEventListener {
         travelBaseAnalysisDone = false
         travelAnalysisHadMotion = false
         travelAnalysisHadCloth = false
-        travelHandCycleStart = travelArmTimestamp
+        stationarySinceTimestamp = 0L
         _travelCurrentSubState.value = TravelSubState.CALIBRATING_BASE
         lastOpposingShockTime = 0L
         lastVerticalSign = 0
@@ -448,17 +446,16 @@ class SensorFusion(context: Context) : SensorEventListener {
     /**
      * Travel Mode: Dynamically shifts behavior based on phone environment:
      * 1. 5-Second Base State Analysis on start:
-     *    - If motion detected during first 5s -> Starts 1-minute timer (do nothing).
+     *    - If motion detected during first 5s -> ACTIVE_USE (monitors continuously for x min stillness).
      *    - If motionless during first 5s:
      *      - In pocket/bag (proximity covered / 0 lux vertical) -> IN_POCKET logic.
      *      - Flat & motionless on surface (even with 1 lux in dark car) -> DESK_IDLE logic.
-     * 2. ACTIVE_USE (1-min wait + 15-sec observation loop):
-     *    - For 1 minute: do nothing, zero false alarms.
-     *    - Then observe for 15 seconds:
-     *      - If even the slightest movement in 15s -> restart 1-minute wait loop.
-     *      - If motionless for full 15s:
-     *        - In pocket/bag -> IN_POCKET.
-     *        - At rest on surface (even with 1 lux in dark car) -> DESK_IDLE.
+     * 2. ACTIVE_USE:
+     *    - Phone is actively held/used: dormant, zero false alarms.
+     *    - If placed inside pocket/bag -> transitions immediately to IN_POCKET.
+     *    - Continuously monitors sensor data: if phone is stationary with constant values
+     *      for the user-configured x number of minutes, auto-activates DESK_IDLE!
+     *    - Any movement or non-constant values reset the x-minute timer immediately.
      * 3. Once in IN_POCKET or DESK_IDLE:
      *    - Runs 24x7 until triggered & authenticated, or authenticated without triggering.
      */
@@ -491,9 +488,8 @@ class SensorFusion(context: Context) : SensorEventListener {
                 travelBaseAnalysisDone = true
                 if (travelAnalysisHadMotion) {
                     // Movement detected in first 5s -> user is holding/using phone!
-                    // Start 1-minute timer in which we do nothing
                     _travelCurrentSubState.value = TravelSubState.ACTIVE_USE
-                    travelHandCycleStart = now
+                    stationarySinceTimestamp = 0L
                     travelDeskCalibrationSamples = 0
                     travelBaselineX = 0f
                     travelBaselineY = 0f
@@ -516,7 +512,7 @@ class SensorFusion(context: Context) : SensorEventListener {
                     _travelCurrentSubState.value = TravelSubState.DESK_IDLE
                 } else {
                     _travelCurrentSubState.value = TravelSubState.ACTIVE_USE
-                    travelHandCycleStart = now
+                    stationarySinceTimestamp = 0L
                     travelDeskCalibrationSamples = 0
                 }
             }
@@ -529,50 +525,48 @@ class SensorFusion(context: Context) : SensorEventListener {
             TravelSubState.ACTIVE_USE, TravelSubState.CALIBRATING_BASE -> {
                 _sensorReading.value = _sensorReading.value.copy(motionMagnitude = accelDeviation)
 
-                val elapsedInCycle = now - travelHandCycleStart
-                if (elapsedInCycle < TRAVEL_HAND_INTERVAL_MS) {
-                    // 1-minute timer: DO NOTHING!
-                    // Phone is actively with user in hand/transit: dormant, never false alarms
+                // 1. If phone is placed in pocket / bag:
+                val verticalRatio = if (totalG > 0.1f) abs(y) / totalG else 0f
+                val isPutInPocket = currentProximityCovered || (currentLight < 0.5f && verticalRatio > 0.65f)
+
+                if (isPutInPocket) {
+                    _travelCurrentSubState.value = TravelSubState.IN_POCKET
+                    travelDeskBaselineSet = false
+                    travelDeskCalibrationSamples = 0
+                    pocketBaselineLight = currentLight
+                    lightBaselineSet = true
+                    stationarySinceTimestamp = 0L
+                    return
+                }
+
+                // 2. Continuously monitor sensor data for constant / stationary values:
+                val isValuesConstant = (accelDeviation <= 0.20f)
+
+                if (!isValuesConstant) {
+                    // Phone is moving or handled: values are not constant!
+                    // Reset stationary tracking — must be continuously constant for x minutes
+                    stationarySinceTimestamp = 0L
                     travelDeskCalibrationSamples = 0
                     travelBaselineX = 0f
                     travelBaselineY = 0f
                     travelBaselineZ = 0f
-                    return
-                }
+                } else {
+                    // Values are constant (stationary / at rest on surface):
+                    if (stationarySinceTimestamp == 0L) {
+                        stationarySinceTimestamp = now
+                    }
 
-                // 1-minute wait is over! Inside the 15-second Stillness Observation Window:
-                val elapsedInObservation = elapsedInCycle - TRAVEL_HAND_INTERVAL_MS
+                    // Accumulate surface normal calibration samples
+                    travelBaselineX = ((travelBaselineX * travelDeskCalibrationSamples) + x) / (travelDeskCalibrationSamples + 1)
+                    travelBaselineY = ((travelBaselineY * travelDeskCalibrationSamples) + y) / (travelDeskCalibrationSamples + 1)
+                    travelBaselineZ = ((travelBaselineZ * travelDeskCalibrationSamples) + z) / (travelDeskCalibrationSamples + 1)
+                    travelDeskCalibrationSamples++
 
-                // Check regularly if there is even the slightest movement in the 15 seconds:
-                if (accelDeviation > 0.20f) {
-                    // Movement detected! Start 1-minute wait again
-                    travelHandCycleStart = now
-                    travelDeskCalibrationSamples = 0
-                    travelBaselineX = 0f
-                    travelBaselineY = 0f
-                    travelBaselineZ = 0f
-                    return
-                }
+                    val constantDurationMs = now - stationarySinceTimestamp
 
-                // Motionless during this sample: collect surface normal baseline
-                travelBaselineX = ((travelBaselineX * travelDeskCalibrationSamples) + x) / (travelDeskCalibrationSamples + 1)
-                travelBaselineY = ((travelBaselineY * travelDeskCalibrationSamples) + y) / (travelDeskCalibrationSamples + 1)
-                travelBaselineZ = ((travelBaselineZ * travelDeskCalibrationSamples) + z) / (travelDeskCalibrationSamples + 1)
-                travelDeskCalibrationSamples++
-
-                // When full 15 seconds of stillness observation is complete:
-                if (elapsedInObservation >= TRAVEL_STILLNESS_WINDOW_MS && travelDeskCalibrationSamples >= 15) {
-                    val verticalRatio = if (totalG > 0.1f) abs(y) / totalG else 0f
-                    val isInPocket = currentProximityCovered || (currentLight < 0.5f && verticalRatio > 0.65f)
-
-                    if (isInPocket) {
-                        // Phone is in pocket -> Lock Pocket Mode!
-                        _travelCurrentSubState.value = TravelSubState.IN_POCKET
-                        travelDeskBaselineSet = false
-                        pocketBaselineLight = currentLight
-                        lightBaselineSet = true
-                    } else {
-                        // Phone is in rest on desk / car console with some light (even 1 lux) -> Lock Desk Mode!
+                    // If values stay constant for the user-configured x number of minutes:
+                    if (constantDurationMs >= travelIdleThresholdMs && travelDeskCalibrationSamples >= 20) {
+                        // Activate Desk Mode in Travel Mode!
                         val mag = sqrt(travelBaselineX * travelBaselineX + travelBaselineY * travelBaselineY + travelBaselineZ * travelBaselineZ)
                         travelBaselineG = if (mag > 0.1f) mag else 9.81f
                         travelNormalX = travelBaselineX / travelBaselineG

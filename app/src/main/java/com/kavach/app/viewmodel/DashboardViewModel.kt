@@ -203,6 +203,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                 sensorFusion.setSensitivity(s.sensitivityLevel)
                 sensorFusion.setDetectionMode(s.detectionMode)
                 sensorFusion.setPocketDetectionEnabled(s.pocketDetectionEnabled)
+                sensorFusion.setTravelIdleMinutes(s.travelIdleMinutes)
                 KavachForegroundService.updateLiveSensitivity(s.sensitivityLevel)
 
                 // Schedule/cancel night auto-arm whenever settings change

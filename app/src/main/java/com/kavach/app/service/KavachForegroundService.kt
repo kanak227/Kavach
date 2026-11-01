@@ -241,7 +241,7 @@ class KavachForegroundService : Service() {
             acquireWakeLock()
             _serviceShieldState.value = ShieldState.ALARM_ACTIVE
 
-            val cachePrefs = getSharedPreferences("kavach_cache_prefs", Context.MODE_PRIVATE)
+            val cachePrefs = getSharedPreferences("kavach_prefs", Context.MODE_PRIVATE)
             val cachedVolume = cachePrefs.getInt("alarm_volume_percent", 100)
             val selectedPack = cachePrefs.getString("selected_siren_pack_id", "default") ?: "default"
             val flashlight = cachePrefs.getBoolean("flashlight_enabled", true)
@@ -331,7 +331,7 @@ class KavachForegroundService : Service() {
                     val duration = prefs.getInt("shield_duration_minutes", 120)
                     startForeground(NOTIFICATION_ID, buildNotification())
 
-                    val cachePrefs = getSharedPreferences("kavach_cache_prefs", Context.MODE_PRIVATE)
+                    val cachePrefs = getSharedPreferences("kavach_prefs", Context.MODE_PRIVATE)
                     val cachedVolume = cachePrefs.getInt("alarm_volume_percent", 100)
                     val selectedPack = cachePrefs.getString("selected_siren_pack_id", "default") ?: "default"
                     val flashlight = cachePrefs.getBoolean("flashlight_enabled", true)
@@ -388,7 +388,7 @@ class KavachForegroundService : Service() {
         sensorFusion?.apply {
             setDetectionMode(mode)
             setSensitivity(sensitivity)
-            val cachePrefs = getSharedPreferences("kavach_cache_prefs", Context.MODE_PRIVATE)
+            val cachePrefs = getSharedPreferences("kavach_prefs", Context.MODE_PRIVATE)
             val idleMins = try { cachePrefs.getInt("travel_idle_minutes", 3) } catch (_: Exception) { 3 }
             setTravelIdleMinutes(idleMins)
             recalibrate()
@@ -609,7 +609,7 @@ class KavachForegroundService : Service() {
             // If alarming or triggered, keep siren playing and relaunch authentication UI immediately!
             if (isAlarming) {
                 _serviceShieldState.value = ShieldState.ALARM_ACTIVE
-                val cachePrefs = getSharedPreferences("kavach_cache_prefs", Context.MODE_PRIVATE)
+                val cachePrefs = getSharedPreferences("kavach_prefs", Context.MODE_PRIVATE)
                 val savedVolume = cachePrefs.getInt("alarm_volume_percent", 100)
                 val selectedPack = cachePrefs.getString("selected_siren_pack_id", "default") ?: "default"
                 val flashlight = cachePrefs.getBoolean("flashlight_enabled", true)
